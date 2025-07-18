@@ -360,7 +360,9 @@ class AddProductFrame(ctk.CTkFrame):
                 data["tiempo_optimo"] = float(
                     self.tiempo_optimo_entry.get().replace(",", ".")
                 )
-                data["tipo_trabajador"] = int(self.trabajador_menu.get().split(" ")[1])
+                data["tipo_trabajador"] = min(
+                    s["tipo_trabajador"] for s in self.subfabricaciones_data
+                )
                 sub_data = None
             except ValueError:
                 messagebox.showerror(
@@ -886,7 +888,7 @@ class EditFrame(ctk.CTkFrame):
                 )
                 return
             new_data["tiempo_optimo"] = sum(s["tiempo"] for s in sub_data)
-            new_data["tipo_trabajador"] = max(s["tipo_trabajador"] for s in sub_data)
+            new_data["tipo_trabajador"] = min(s["tipo_trabajador"] for s in sub_data)
         if self.db_manager.update_product(original_codigo, new_data, sub_data):
             messagebox.showinfo("Éxito", "Producto actualizado correctamente.")
             self.clear_search()
@@ -1229,15 +1231,20 @@ class CalculateTimesFrame(ctk.CTkFrame):
             )
         self.results_textbox.configure(state="disabled")
 
+    # Reemplaza este método completo en la clase CalculateTimesFrame
     def export_to_excel(self):
         units = self.get_and_validate_inputs()
         if not units:
             return
+
         filepath = filedialog.asksaveasfilename(
             defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")]
         )
         if not filepath:
             return
+
+        # --- Hoja Resumen ---
+        total_jornadas = sum(self.total_minutes.values()) / self.WORKDAY_MINUTES
         summary_data = {
             "Concepto": [
                 "Fabricación",
@@ -1246,17 +1253,21 @@ class CalculateTimesFrame(ctk.CTkFrame):
                 "Minutos Reales T2",
                 "Minutos Reales T3",
                 "TOTAL MINUTOS REALES",
+                "TOTAL JORNADAS LABORALES",
             ],
             "Valor": [
                 self.selected_fab_code,
                 units,
-                self.total_minutes[1],
-                self.total_minutes[2],
-                self.total_minutes[3],
-                sum(self.total_minutes.values()),
+                f"{self.total_minutes[1]:.2f}",
+                f"{self.total_minutes[2]:.2f}",
+                f"{self.total_minutes[3]:.2f}",
+                f"{sum(self.total_minutes.values()):.2f}",
+                f"{total_jornadas:.2f}",
             ],
         }
         df_summary = pd.DataFrame(summary_data)
+
+        # --- Hojas por departamento (sin 'cantidad_en_kit' y con totales) ---
         df_mec = pd.DataFrame(
             [p for p in self.calculation_data if p["departamento"] == "Mecánica"]
         )
@@ -1266,10 +1277,23 @@ class CalculateTimesFrame(ctk.CTkFrame):
         df_mon = pd.DataFrame(
             [p for p in self.calculation_data if p["departamento"] == "Montaje"]
         )
+
+        # CAMBIO: Eliminamos la columna 'cantidad_en_kit' de las hojas de departamento
+        for df in [df_mec, df_ele, df_mon]:
+            if "cantidad_en_kit" in df.columns:
+                df.drop(columns=["cantidad_en_kit"], inplace=True)
+            # NUEVO: Añadimos la fila de totales (sumando solo el tiempo)
+            if not df.empty:
+                df.loc["Total"] = pd.Series(
+                    df["tiempo_optimo"].sum(), index=["tiempo_optimo"]
+                )
+
+        # --- Hoja de Desglose (sin 'cantidad_en_kit') ---
         all_parts = []
         for p in self.calculation_data:
             if p["tiene_subfabricaciones"]:
                 for s in p["sub_partes"]:
+                    # CAMBIO: Se elimina p["cantidad_en_kit"] de la lista
                     all_parts.append(
                         [
                             p["codigo"],
@@ -1277,10 +1301,10 @@ class CalculateTimesFrame(ctk.CTkFrame):
                             s["tiempo"],
                             s["tiempo"] * 1.20,
                             s["tipo_trabajador"],
-                            p["cantidad_en_kit"],
                         ]
                     )
             else:
+                # CAMBIO: Se elimina p["cantidad_en_kit"] de la lista
                 all_parts.append(
                     [
                         p["codigo"],
@@ -1288,9 +1312,10 @@ class CalculateTimesFrame(ctk.CTkFrame):
                         p["tiempo_optimo"],
                         p["tiempo_optimo"] * 1.20,
                         p["tipo_trabajador"],
-                        p["cantidad_en_kit"],
                     ]
                 )
+
+        # CAMBIO: Se elimina "Cant. en Kit" de las columnas
         df_detail = pd.DataFrame(
             all_parts,
             columns=[
@@ -1299,15 +1324,22 @@ class CalculateTimesFrame(ctk.CTkFrame):
                 "Tiempo Óptimo",
                 "Tiempo Real",
                 "Tipo Trab.",
-                "Cant. en Kit",
             ],
         )
+
+        # --- Escribir el archivo Excel ---
         with pd.ExcelWriter(filepath) as writer:
-            df_summary.to_excel(writer, sheet_name="Resumen", index=False)
-            df_mec.to_excel(writer, sheet_name="Mecanica", index=False)
-            df_ele.to_excel(writer, sheet_name="Electronica", index=False)
-            df_mon.to_excel(writer, sheet_name="Montaje", index=False)
+            # NUEVO: Se añade el título de la fabricación en la hoja de resumen
+            pd.DataFrame([self.fab_search_entry.get()]).to_excel(
+                writer, sheet_name="Resumen", startrow=0, header=False, index=False
+            )
+            df_summary.to_excel(writer, sheet_name="Resumen", startrow=2, index=False)
+
+            df_mec.to_excel(writer, sheet_name="Mecanica", index=True)
+            df_ele.to_excel(writer, sheet_name="Electronica", index=True)
+            df_mon.to_excel(writer, sheet_name="Montaje", index=True)
             df_detail.to_excel(writer, sheet_name="Desglose Completo", index=False)
+
         messagebox.showinfo("Éxito", f"Informe exportado a\n{filepath}")
 
 
