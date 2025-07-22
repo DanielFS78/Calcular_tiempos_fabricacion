@@ -1,22 +1,23 @@
-# Archivos de Python
+# Archivos de cache de Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Entornos virtuales
 venv/
-.venv/
+env/
 
-# Archivos de compilación de PyInstaller
-build/
+# Archivos de base de datos y logs
+*.db
+*.db-journal*
+app.log
+
+# Archivos generados por PyInstaller
 dist/
+build/
 *.spec
 
-# Base de datos y configuración (opcional)
-# Si quieres que cada usuario tenga la suya, ignóralas.
-# Si quieres que la base de datos se guarde en el repo, comenta estas líneas.
-# montaje.db
-# config.ini
-
-# Archivos del sistema operativo
-.DS_Store
-Thumbs.db
+# Archivos de configuración de IDEs
+.vscode/
+.idea/

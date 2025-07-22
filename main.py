@@ -1,21 +1,225 @@
 # =================================================================================
 # APLICACIÓN PRINCIPAL (main.py) - VERSIÓN 4 (Corregida)
-# =================================================================================
-# Corregida la indentación y estructura de la clase App.
-# Añadida la funcionalidad completa de Cálculo de Tiempos, Ayuda y Configuración.
-# =================================================================================
 
-import customtkinter as ctk
-from tkinter import messagebox, filedialog
-import pandas as pd
-import math
-import shutil
+
+# --- 1. LIBRERÍAS ESTÁNDAR DE PYTHON ---
 import configparser
-import sys
+import json
+import logging
+import math
 import os
 import random
-import requests  # <-- Añadir esta
-import json  # <-- Añadir esta
+import shutil
+import sys
+from datetime import datetime, timedelta
+from tkinter import messagebox, filedialog
+import customtkinter as ctk
+import pandas as pd
+import plotly.express as px
+import requests
+from tkcalendar import DateEntry
+from calendar_helper import is_workday, add_work_minutes, count_workdays
+from database_manager import DatabaseManager
+
+
+def resource_path(relative_path):
+    """Obtiene la ruta absoluta al recurso, funciona para desarrollo y para PyInstaller"""
+    try:
+        # PyInstaller crea una carpeta temporal y almacena la ruta en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+def crear_plan_definitivo(department_plans, units, WORKDAY_MINUTES):
+    """
+    Genera un plan de producción detallado, un Gantt y un resumen de texto.
+    - Desglosa los productos en sus sub-fabricaciones.
+    - Calcula la duración en días laborables para cada tarea.
+    - Respeta los tipos de trabajador y fechas de inicio por fase.
+    """
+    logging.info("Iniciando la creación del plan de producción definitivo y detallado.")
+
+    planned_tasks = []
+    summary_lines = [
+        f"RESUMEN DE PLANIFICACIÓN AVANZADA PARA {units} UNIDADES",
+        "=" * 60,
+    ]
+
+    department_order = ["Electrónica", "Mecánica", "Montaje"]
+
+    for dept_name in department_order:
+        if dept_name not in department_plans:
+            continue
+
+        plan = department_plans[dept_name]
+        workers_by_type = plan["workers"]
+        task_order = plan["task_order"]
+        start_date = plan["start_date"]
+
+        phase_start_time = datetime.combine(start_date, datetime.min.time())
+
+        worker_availability = {1: [], 2: [], 3: []}
+        for worker_type, count in workers_by_type.items():
+            worker_availability[worker_type] = [phase_start_time] * count
+
+        for task in task_order:
+            # --- LÓGICA DE DESGLOSE DE SUBPROCESOS ---
+            if task["tiene_subfabricaciones"] and task["sub_partes"]:
+                # Si el producto es complejo, planificamos cada sub-parte
+                for sub_task in task["sub_partes"]:
+                    required_worker_type = sub_task["tipo_trabajador"]
+                    task_name = f"({task['codigo']}) {sub_task['descripcion']}"
+                    task_duration_minutes = sub_task["tiempo"] * 1.20 * units
+
+                    if not worker_availability.get(required_worker_type):
+                        messagebox.showerror(
+                            "Error de Planificación",
+                            f"La subtarea '{task_name}' requiere un trabajador Tipo {required_worker_type}, pero no hay ninguno asignado en {dept_name}.",
+                        )
+                        return None, None, None
+
+                    # Asegurarse de que hay trabajadores de ese tipo
+                    if not worker_availability[required_worker_type]:
+                        messagebox.showerror(
+                            "Error de Planificación",
+                            f"La subtarea '{task_name}' requiere un trabajador Tipo {required_worker_type}, pero no hay ninguno asignado en {dept_name}.",
+                        )
+                        return None, None, None
+
+                    earliest_finish_time = min(
+                        worker_availability[required_worker_type]
+                    )
+                    worker_index = worker_availability[required_worker_type].index(
+                        earliest_finish_time
+                    )
+
+                    task_start_time = earliest_finish_time
+                    task_end_time = add_work_minutes(
+                        task_start_time, task_duration_minutes, WORKDAY_MINUTES
+                    )
+                    worker_availability[required_worker_type][
+                        worker_index
+                    ] = task_end_time
+
+                    planned_tasks.append(
+                        {
+                            "Tarea": task_name,
+                            "Departamento": dept_name,
+                            "Inicio": task_start_time,
+                            "Fin": task_end_time,
+                            "Tipo Trabajador": required_worker_type,
+                            "Trabajador Asignado": f"{dept_name[:3].upper()}-T{required_worker_type}-{worker_index + 1}",
+                            "Duracion (min)": task_duration_minutes,
+                            "Dias Laborables": count_workdays(
+                                task_start_time, task_end_time
+                            ),
+                        }
+                    )
+            else:
+                # Si el producto es simple, se planifica como una sola tarea
+                required_worker_type = task["tipo_trabajador"]
+                task_name = f"({dept_name[0]}) {task['codigo']}"
+                task_duration_minutes = task["tiempo_optimo"] * 1.20 * units
+
+                if not worker_availability.get(required_worker_type):
+                    messagebox.showerror(
+                        "Error de Planificación",
+                        f"La tarea '{task_name}' requiere un trabajador Tipo {required_worker_type}, pero no hay ninguno asignado en {dept_name}.",
+                    )
+                    return None, None, None
+
+                # Asegurarse de que hay trabajadores de ese tipo
+                if not worker_availability[required_worker_type]:
+                    messagebox.showerror(
+                        "Error de Planificación",
+                        f"La tarea '{task_name}' requiere un trabajador Tipo {required_worker_type}, pero no hay ninguno asignado en {dept_name}.",
+                    )
+                    return None, None, None
+
+                earliest_finish_time = min(worker_availability[required_worker_type])
+                worker_index = worker_availability[required_worker_type].index(
+                    earliest_finish_time
+                )
+
+                task_start_time = earliest_finish_time
+                task_end_time = add_work_minutes(
+                    task_start_time, task_duration_minutes, WORKDAY_MINUTES
+                )
+                worker_availability[required_worker_type][worker_index] = task_end_time
+
+                planned_tasks.append(
+                    {
+                        "Tarea": task_name,
+                        "Departamento": dept_name,
+                        "Inicio": task_start_time,
+                        "Fin": task_end_time,
+                        "Tipo Trabajador": required_worker_type,
+                        "Trabajador Asignado": f"{dept_name[:3].upper()}-T{required_worker_type}-{worker_index + 1}",
+                        "Duracion (min)": task_duration_minutes,
+                        "Dias Laborables": count_workdays(
+                            task_start_time, task_end_time
+                        ),
+                    }
+                )
+
+    if not planned_tasks:
+        messagebox.showwarning("Aviso", "No se generaron tareas.")
+        return None, None, None
+
+    # --- Generación del Gráfico Gantt ---
+    df = pd.DataFrame(planned_tasks)
+    fig = px.timeline(
+        df,
+        x_start="Inicio",
+        x_end="Fin",
+        y="Tarea",
+        color="Departamento",
+        hover_data=["Trabajador Asignado", "Tipo Trabajador", "Dias Laborables"],
+        title=f"Plan de Fabricación Detallado para {units} unidades",
+    )
+    fig.update_yaxes(autorange="reversed")
+
+    # --- Resumen de Texto ---
+    project_start_time = min(t["Inicio"] for t in planned_tasks)
+    project_end_time = max(t["Fin"] for t in planned_tasks)
+    total_workdays = count_workdays(project_start_time, project_end_time)
+
+    summary_lines.insert(
+        2, f"\nDuración Total Estimada: {total_workdays} días laborables"
+    )
+    summary_lines.insert(
+        2, f"Fecha de Fin del Proyecto:   {project_end_time.strftime('%d-%m-%Y %H:%M')}"
+    )
+    summary_lines.insert(
+        2,
+        f"Fecha de Inicio del Proyecto: {project_start_time.strftime('%d-%m-%Y %H:%M')}",
+    )
+
+    for dept_name in department_order:
+        if dept_name in department_plans:
+            dept_tasks = [t for t in planned_tasks if t["Departamento"] == dept_name]
+            if dept_tasks:
+                dept_start = min(t["Inicio"] for t in dept_tasks)
+                dept_end = max(t["Fin"] for t in dept_tasks)
+                summary_lines.append(f"\n--- FASE: {dept_name} ---")
+                summary_lines.append(
+                    f"Inicio: {dept_start.strftime('%d-%m-%Y %H:%M')} | Fin: {dept_end.strftime('%d-%m-%Y %H:%M')}"
+                )
+
+    return fig, planned_tasks, "\n".join(summary_lines)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    filename="app.log",
+    filemode="a",
+)
+# Ejemplo de uso
+logging.info("El programa ha iniciado.")
 from database_manager import DatabaseManager
 
 # --- Configuración de la Apariencia ---
@@ -60,28 +264,27 @@ class HomeFrame(ctk.CTkFrame):
         )
         author_text.pack(expand=True, anchor="e", padx=40, pady=(0, 40))
 
+    # Dentro de la clase HomeFrame
+
     def get_quote_from_api(self):
         """Obtiene una frase del día desde la API web."""
-        # URL de la API que has proporcionado
         url = "https://frasedeldia.azurewebsites.net/api/phrase"
 
         try:
-            # Hacemos la llamada a la API con un tiempo de espera de 5 segundos
+            logging.info(f"Intentando obtener frase desde la API: {url}")
             response = requests.get(url, timeout=5)
-            # Esto genera un error si la respuesta no es exitosa (ej: 404, 500)
-            response.raise_for_status()
+            response.raise_for_status()  # Lanza un error si la respuesta no es 2xx
 
-            # Convertimos la respuesta JSON en un diccionario de Python
             data = response.json()
+            phrase = data.get("phrase", "No se pudo cargar la frase.")
+            author = data.get("author", "Sistema")
 
-            # Devolvemos la frase y el autor
-            return data.get("phrase", "No se pudo cargar la frase."), data.get(
-                "author", "Sistema"
-            )
+            logging.info("Frase obtenida con éxito de la API.")
+            return phrase, author
 
         except requests.exceptions.RequestException as e:
-            # Si hay cualquier error de red (sin internet, API caída, etc.)
-            print(f"Error al contactar la API: {e}")
+            # Captura cualquier error relacionado con la red: timeout, no hay conexión, error de DNS, etc.
+            logging.warning(f"No se pudo contactar la API de frases. Error: {e}")
             # Devolvemos una frase por defecto para que la app no falle
             return (
                 "La única forma de hacer un gran trabajo es amar lo que haces.",
@@ -349,7 +552,12 @@ class AddProductFrame(ctk.CTkFrame):
             "tiene_subfabricaciones": self.tiene_sub_var.get(),
         }
 
+        logging.info(f"Intentando guardar producto con código: {data['codigo']}")
+
         if not data["codigo"] or not data["descripcion"]:
+            logging.warning(
+                f"Validación fallida al guardar producto: código o descripción vacíos."
+            )
             messagebox.showerror(
                 "Error de Validación", "El código y la descripción son obligatorios."
             )
@@ -360,29 +568,37 @@ class AddProductFrame(ctk.CTkFrame):
                 data["tiempo_optimo"] = float(
                     self.tiempo_optimo_entry.get().replace(",", ".")
                 )
-                data["tipo_trabajador"] = min(
-                    s["tipo_trabajador"] for s in self.subfabricaciones_data
-                )
+                data["tipo_trabajador"] = int(self.trabajador_menu.get().split(" ")[1])
                 sub_data = None
-            except ValueError:
+            except (ValueError, IndexError):
+                logging.warning(
+                    f"Validación fallida para producto {data['codigo']}: Tiempo o tipo de trabajador inválido."
+                )
                 messagebox.showerror(
-                    "Error de Validación", "El tiempo óptimo debe ser un número válido."
+                    "Error de Validación",
+                    "El tiempo óptimo y el tipo de trabajador deben ser válidos.",
                 )
                 return
         else:
             if not self.subfabricaciones_data:
+                logging.warning(
+                    f"Validación fallida para producto {data['codigo']}: No se añadieron subfabricaciones."
+                )
                 messagebox.showerror(
                     "Error de Validación",
                     "Si marca 'Tiene subfabricaciones', debe añadir al menos una parte.",
                 )
                 return
             data["tiempo_optimo"] = sum(s["tiempo"] for s in self.subfabricaciones_data)
-            data["tipo_trabajador"] = max(
+            data["tipo_trabajador"] = min(
                 s["tipo_trabajador"] for s in self.subfabricaciones_data
             )
             sub_data = self.subfabricaciones_data
 
         if self.db_manager.add_product(data, sub_data):
+            logging.info(
+                f"Producto '{data['codigo']}' guardado con éxito en la base de datos."
+            )
             messagebox.showinfo(
                 "Éxito", f"Producto '{data['codigo']}' guardado correctamente."
             )
@@ -391,8 +607,11 @@ class AddProductFrame(ctk.CTkFrame):
             self.donde_textbox.delete("1.0", "end")
             self.tiempo_optimo_entry.delete(0, "end")
             self.subfabricaciones_data = []
-            self.sub_info_label.configure(text="No se han añadido subfabricaciones.")
+            self.toggle_sub_mode()
         else:
+            logging.error(
+                f"Fallo al guardar producto en la BD. Código duplicado o error de BD para: {data['codigo']}"
+            )
             messagebox.showerror(
                 "Error de Base de Datos",
                 f"No se pudo guardar el producto. ¿Quizás el código '{data['codigo']}' ya existe?",
@@ -582,26 +801,47 @@ class CreateFabricacionFrame(ctk.CTkFrame):
             self.contenido_actual.clear()
             self.update_content_textbox()
 
+    # Dentro de la clase CreateFabricacionFrame
+
+    # Reemplaza este método dentro de la clase CreateFabricacionFrame
+    # Reemplaza este método dentro de la clase CreateFabricacionFrame
     def save_fabricacion(self):
         fab_codigo = self.fab_codigo_entry.get().strip()
         fab_desc = self.fab_desc_entry.get().strip()
+
+        logging.info(f"Intentando guardar fabricación con código: {fab_codigo}")
+
         if not fab_codigo or not fab_desc:
+            logging.warning(
+                f"Validación fallida al guardar fabricación: código o descripción vacíos."
+            )
             messagebox.showerror(
                 "Error",
                 "El código y la descripción de la fabricación son obligatorios.",
             )
             return
+
         if not self.contenido_actual:
+            logging.warning(
+                f"Validación fallida para fabricación {fab_codigo}: No se añadieron productos."
+            )
             messagebox.showerror(
                 "Error", "La fabricación debe contener al menos un producto."
             )
             return
+
         if self.db_manager.add_fabricacion(fab_codigo, fab_desc, self.contenido_actual):
+            logging.info(
+                f"Fabricación '{fab_codigo}' guardada con éxito en la base de datos."
+            )
             messagebox.showinfo(
                 "Éxito", f"Fabricación '{fab_codigo}' guardada correctamente."
             )
             self.clear_form()
         else:
+            logging.error(
+                f"Fallo al guardar fabricación en la BD. Código duplicado o error de BD para: {fab_codigo}"
+            )
             messagebox.showerror(
                 "Error de Base de Datos",
                 f"No se pudo guardar la fabricación. ¿Quizás el código '{fab_codigo}' ya existe?",
@@ -617,7 +857,7 @@ class CreateFabricacionFrame(ctk.CTkFrame):
 
 
 # =================================================================================
-# CLASE PARA LA PANTALLA "EDITAR / VISUALIZAR"
+# CLASE PARA LA PANTALLA "EDITAR / VISUALIZAR" (TOTALMENTE REESTRUCTURADA)
 # =================================================================================
 class EditFrame(ctk.CTkFrame):
     def __init__(self, parent, db_manager):
@@ -688,23 +928,24 @@ class EditFrame(ctk.CTkFrame):
             label.bind("<Button-1>", lambda e, c=codigo: self.load_item_for_edit(c))
 
     def load_item_for_edit(self, codigo):
+        search_type = self.search_type_var.get()
+        logging.info(
+            f"Cargando datos de '{search_type[:-1]}' con código '{codigo}' para edición."
+        )
         for widget in self.edit_area_frame.winfo_children():
             widget.destroy()
-        search_type = self.search_type_var.get()
         if search_type == "Productos":
             self.create_product_edit_form(codigo)
         else:
             self.create_fabricacion_edit_form(codigo)
         self.edit_area_frame.grid(row=0, column=1, padx=(20, 0), pady=0, sticky="nsew")
 
-    # Reemplaza este método DENTRO de la clase EditFrame en main.py
     def create_product_edit_form(self, codigo):
         product_data, sub_data_raw = self.db_manager.get_product_details(codigo)
         if not product_data:
             messagebox.showerror("Error", "No se encontró el producto.")
             return
 
-        # Adaptar los datos para la UI
         data = {
             "codigo": product_data[0],
             "descripcion": product_data[1],
@@ -726,7 +967,6 @@ class EditFrame(ctk.CTkFrame):
             form, text="Editando Producto", font=ctk.CTkFont(size=16, weight="bold")
         ).grid(row=0, column=0, columnspan=2, pady=10)
 
-        # Campo Código
         ctk.CTkLabel(form, text="Código:").grid(
             row=1, column=0, padx=10, pady=5, sticky="w"
         )
@@ -734,7 +974,6 @@ class EditFrame(ctk.CTkFrame):
         self.p_codigo_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
         self.p_codigo_entry.insert(0, data["codigo"])
 
-        # Campo Descripción
         ctk.CTkLabel(form, text="Descripción:").grid(
             row=2, column=0, padx=10, pady=5, sticky="w"
         )
@@ -742,7 +981,6 @@ class EditFrame(ctk.CTkFrame):
         self.p_desc_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
         self.p_desc_entry.insert(0, data["descripcion"])
 
-        # Campo Departamento
         ctk.CTkLabel(form, text="Departamento:").grid(
             row=3, column=0, padx=10, pady=5, sticky="w"
         )
@@ -752,7 +990,6 @@ class EditFrame(ctk.CTkFrame):
         self.p_departamento_menu.set(data["departamento"])
         self.p_departamento_menu.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
-        # Campo "Dónde"
         ctk.CTkLabel(form, text="Dónde se ubica:").grid(
             row=5, column=0, padx=10, pady=5, sticky="nw"
         )
@@ -760,14 +997,12 @@ class EditFrame(ctk.CTkFrame):
         self.p_donde_textbox.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
         self.p_donde_textbox.insert("1.0", data["donde"] or "")
 
-        # --- Lógica de Subfabricaciones ---
         self.p_sub_frame = ctk.CTkFrame(form, fg_color="transparent")
         self.p_sub_frame.grid(
             row=6, column=0, columnspan=2, padx=10, pady=5, sticky="ew"
         )
         self.p_sub_frame.grid_columnconfigure(1, weight=1)
 
-        # Switch y sus componentes
         self.p_tiene_sub_var = ctk.IntVar(value=data["tiene_subfabricaciones"])
         self.p_sub_switch = ctk.CTkSwitch(
             self.p_sub_frame,
@@ -796,10 +1031,8 @@ class EditFrame(ctk.CTkFrame):
         self.p_sub_info_label = ctk.CTkLabel(
             self.p_sub_frame, text="", text_color="gray"
         )
+        self._p_toggle_sub_mode()
 
-        self._p_toggle_sub_mode()  # Llamar para establecer el estado inicial correcto
-
-        # --- Botones de Acción ---
         btn_frame = ctk.CTkFrame(form, fg_color="transparent")
         btn_frame.grid(row=10, column=0, columnspan=2, pady=20, sticky="e")
 
@@ -845,17 +1078,17 @@ class EditFrame(ctk.CTkFrame):
         sub_window = SubfabricacionesWindow(
             self, existing_subfabricaciones=self.subfabricaciones_data
         )
-
-        # Usamos el mismo método de espera aquí
         self.wait_window(sub_window)
-
-        # Recogemos los datos actualizados al cerrar
         self.subfabricaciones_data = sub_window.subfabricaciones
         self._p_toggle_sub_mode()
 
     def save_product_changes(self, original_codigo):
+        new_code = self.p_codigo_entry.get().strip()
+        logging.info(
+            f"Intentando guardar cambios para el producto '{original_codigo}'. Nuevo código será '{new_code}'."
+        )
         new_data = {
-            "codigo": self.p_codigo_entry.get().strip(),
+            "codigo": new_code,
             "descripcion": self.p_desc_entry.get().strip(),
             "departamento": self.p_departamento_menu.get(),
             "donde": self.p_donde_textbox.get("1.0", "end-1c").strip(),
@@ -863,6 +1096,9 @@ class EditFrame(ctk.CTkFrame):
         }
         sub_data = self.subfabricaciones_data
         if not new_data["codigo"] or not new_data["descripcion"]:
+            logging.warning(
+                "Validación de actualización fallida: código o descripción vacíos."
+            )
             messagebox.showerror(
                 "Error de Validación", "El código y la descripción son obligatorios."
             )
@@ -876,12 +1112,18 @@ class EditFrame(ctk.CTkFrame):
                     self.p_trabajador_menu.get().split(" ")[1]
                 )
             except (ValueError, IndexError):
+                logging.warning(
+                    f"Validación de actualización fallida para '{original_codigo}': Tiempo o tipo de trabajador inválido."
+                )
                 messagebox.showerror(
                     "Error de Validación", "El tiempo óptimo debe ser un número válido."
                 )
                 return
         else:
             if not sub_data:
+                logging.warning(
+                    f"Validación de actualización fallida para '{original_codigo}': No hay subfabricaciones."
+                )
                 messagebox.showerror(
                     "Error de Validación",
                     "Si marca 'Tiene subfabricaciones', debe añadir al menos una parte.",
@@ -890,22 +1132,38 @@ class EditFrame(ctk.CTkFrame):
             new_data["tiempo_optimo"] = sum(s["tiempo"] for s in sub_data)
             new_data["tipo_trabajador"] = min(s["tipo_trabajador"] for s in sub_data)
         if self.db_manager.update_product(original_codigo, new_data, sub_data):
+            logging.info(
+                f"Producto '{original_codigo}' actualizado con éxito a '{new_data['codigo']}'."
+            )
             messagebox.showinfo("Éxito", "Producto actualizado correctamente.")
             self.clear_search()
         else:
+            logging.error(f"Fallo al actualizar producto '{original_codigo}' en la BD.")
             messagebox.showerror("Error", "No se pudo actualizar el producto.")
 
     def delete_product(self, codigo):
+        logging.warning(
+            f"Solicitud de eliminación para el producto '{codigo}'. Esperando confirmación del usuario."
+        )
         if messagebox.askyesno(
             "Confirmar Eliminación",
             f"¿Está seguro de que desea eliminar el producto '{codigo}'?\nEsta acción no se puede deshacer.",
             icon="warning",
         ):
+            logging.info(
+                f"Confirmación de usuario recibida. Intentando eliminar producto '{codigo}'."
+            )
             if self.db_manager.delete_product(codigo):
+                logging.info(
+                    f"Producto '{codigo}' eliminado con éxito de la base de datos."
+                )
                 messagebox.showinfo("Éxito", "Producto eliminado correctamente.")
                 self.clear_search()
             else:
+                logging.error(f"Fallo al eliminar el producto '{codigo}' de la BD.")
                 messagebox.showerror("Error", "No se pudo eliminar el producto.")
+        else:
+            logging.info(f"El usuario canceló la eliminación del producto '{codigo}'.")
 
     def create_fabricacion_edit_form(self, codigo):
         fab_data, contenido_raw = self.db_manager.get_fabricacion_details(codigo)
@@ -970,46 +1228,214 @@ class EditFrame(ctk.CTkFrame):
         self.f_content_textbox.configure(state="disabled")
 
     def save_fabricacion_changes(self, original_codigo):
-        new_data = {
-            "codigo": self.f_codigo_entry.get(),
-            "descripcion": self.f_desc_entry.get(),
-        }
+        new_code = self.f_codigo_entry.get().strip()
+        logging.info(
+            f"Intentando guardar cambios para la fabricación '{original_codigo}'. Nuevo código será '{new_code}'."
+        )
+        new_data = {"codigo": new_code, "descripcion": self.f_desc_entry.get().strip()}
         if self.db_manager.update_fabricacion(
             original_codigo, new_data, self.contenido_actual
         ):
+            logging.info(
+                f"Fabricación '{original_codigo}' actualizada con éxito a '{new_data['codigo']}'."
+            )
             messagebox.showinfo("Éxito", "Fabricación actualizada correctamente.")
             self.clear_search()
         else:
+            logging.error(
+                f"Fallo al actualizar la fabricación '{original_codigo}' en la BD."
+            )
             messagebox.showerror("Error", "No se pudo actualizar la fabricación.")
 
     def delete_fabricacion(self, codigo):
+        logging.warning(
+            f"Solicitud de eliminación para la fabricación '{codigo}'. Esperando confirmación del usuario."
+        )
         if messagebox.askyesno(
             "Confirmar Eliminación",
             f"¿Está seguro de que desea eliminar la fabricación '{codigo}'?",
             icon="warning",
         ):
+            logging.info(
+                f"Confirmación de usuario recibida. Intentando eliminar fabricación '{codigo}'."
+            )
             if self.db_manager.delete_fabricacion(codigo):
+                logging.info(
+                    f"Fabricación '{codigo}' eliminada con éxito de la base de datos."
+                )
                 messagebox.showinfo("Éxito", "Fabricación eliminada.")
                 self.clear_search()
             else:
+                logging.error(f"Fallo al eliminar la fabricación '{codigo}' de la BD.")
                 messagebox.showerror("Error", "No se pudo eliminar la fabricación.")
+        else:
+            logging.info(
+                f"El usuario canceló la eliminación de la fabricación '{codigo}'."
+            )
 
 
 # =================================================================================
-# CLASE PARA LA PANTALLA "CALCULAR TIEMPOS"
+# CLASE PARA LA VENTANA EMERGENTE DE PLANIFICACIÓN (VERSIÓN FINAL CON CALENDARIO)
+# =================================================================================
+class DepartmentPlanningWindow(ctk.CTkToplevel):
+    def __init__(self, parent, department_name, tasks, units):
+        super().__init__(parent)
+        self.title(f"Planificación de {department_name}")
+        self.geometry("700x600")
+        self.transient(parent)
+
+        self.department_name = department_name
+        self.tasks = tasks
+        self.units = units
+        self.plan = None
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)  # Ajustar para la nueva fila
+
+        # --- Marco de Configuración de Recursos y Fecha de Inicio ---
+        config_frame = ctk.CTkFrame(self)
+        config_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
+        config_frame.grid_columnconfigure([0, 1, 2], weight=1)
+
+        self.worker_entries = {}
+        for i in range(1, 4):
+            worker_frame = ctk.CTkFrame(config_frame, fg_color="transparent")
+            worker_frame.grid(row=0, column=i - 1, padx=5)
+            ctk.CTkLabel(worker_frame, text=f"Trabajadores T{i}:").pack(
+                side="left", padx=(0, 5)
+            )
+            entry = ctk.CTkEntry(worker_frame, placeholder_text="0", width=60)
+            entry.pack(side="left")
+            entry.insert(0, "0")
+            self.worker_entries[i] = entry
+
+        # --- NUEVO: Selector de Fecha de Inicio para esta fase ---
+        date_frame = ctk.CTkFrame(self)
+        date_frame.grid(row=1, column=0, padx=20, pady=5, sticky="w")
+        ctk.CTkLabel(date_frame, text="Fecha de Inicio de esta Fase:").pack(
+            side="left", padx=(0, 10)
+        )
+        self.start_date_entry = DateEntry(
+            date_frame, date_pattern="dd/mm/yyyy", locale="es_ES"
+        )
+        self.start_date_entry.pack(side="left")
+
+        # --- Marco para Ordenar Tareas ---
+        self.task_order_frame = ctk.CTkScrollableFrame(
+            self, label_text="Orden de Ejecución de Tareas"
+        )
+        self.task_order_frame.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
+        self.task_widgets = []
+        self.display_tasks()
+
+        # --- Botones de Acción ---
+        button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        button_frame.grid(row=3, column=0, padx=20, pady=10, sticky="e")
+        ctk.CTkButton(button_frame, text="Cancelar", command=self.destroy).pack(
+            side="left", padx=10
+        )
+        ctk.CTkButton(button_frame, text="Guardar Plan", command=self.save_plan).pack(
+            side="left", padx=10
+        )
+
+    def display_tasks(self):
+        for widget_info in self.task_widgets:
+            widget_info["frame"].destroy()
+        self.task_widgets.clear()
+
+        for i, task in enumerate(self.tasks):
+            task_frame = ctk.CTkFrame(self.task_order_frame)
+            task_frame.pack(fill="x", pady=2, padx=5)
+            task_frame.grid_columnconfigure(1, weight=1)
+            task_duration = task["tiempo_optimo"] * 1.20 * self.units
+            worker_type_req = task.get("tipo_trabajador", "N/A")
+            label_text = (
+                f"T{worker_type_req} | {task['codigo']} ({task_duration:.2f} min tot)"
+            )
+            ctk.CTkLabel(task_frame, text=label_text, anchor="w").grid(
+                row=0, column=1, padx=5, sticky="ew"
+            )
+            up_button = ctk.CTkButton(
+                task_frame,
+                text="▲",
+                width=30,
+                command=lambda index=i: self.move_task(index, -1),
+            )
+            up_button.grid(row=0, column=0, padx=5)
+            if i == 0:
+                up_button.configure(state="disabled")
+            down_button = ctk.CTkButton(
+                task_frame,
+                text="▼",
+                width=30,
+                command=lambda index=i: self.move_task(index, 1),
+            )
+            down_button.grid(row=0, column=2, padx=5)
+            if i == len(self.tasks) - 1:
+                down_button.configure(state="disabled")
+            self.task_widgets.append({"frame": task_frame, "task_data": task})
+
+    def move_task(self, index, direction):
+        new_index = index + direction
+        self.tasks[index], self.tasks[new_index] = (
+            self.tasks[new_index],
+            self.tasks[index],
+        )
+        self.display_tasks()
+
+    def save_plan(self):
+        try:
+            workers_by_type = {
+                1: int(self.worker_entries[1].get()),
+                2: int(self.worker_entries[2].get()),
+                3: int(self.worker_entries[3].get()),
+            }
+            if any(w < 0 for w in workers_by_type.values()):
+                raise ValueError
+        except (ValueError, TypeError):
+            messagebox.showerror(
+                "Error",
+                "El número de trabajadores debe ser un entero positivo (o 0).",
+                parent=self,
+            )
+            return
+
+        start_date = self.start_date_entry.get_date()
+        if not is_workday(start_date):
+            messagebox.showwarning(
+                "Fecha Inválida",
+                "La fecha de inicio seleccionada es un fin de semana o festivo.",
+                parent=self,
+            )
+            return
+
+        self.plan = {
+            "workers": workers_by_type,
+            "task_order": self.tasks,
+            "start_date": start_date,  # <-- Guardamos la fecha de inicio
+        }
+        self.destroy()
+
+
+# =================================================================================
+# ASEGÚRATE DE QUE ESTA CLASE ESTÉ DEFINIDA ANTES DE LA CLASE PRINCIPAL "App"
 # =================================================================================
 class CalculateTimesFrame(ctk.CTkFrame):
     def __init__(self, parent, db_manager):
         super().__init__(parent)
         self.db_manager = db_manager
         self.WORKDAY_MINUTES = 465
+        self.calculation_data = None
+        self.department_plans = {}
+        self.final_planned_tasks = None  # Para guardar el resultado final
 
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
+        # --- Marco de Selección de Fabricación ---
         self.selection_frame = ctk.CTkFrame(self)
         self.selection_frame.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
         self.selection_frame.grid_columnconfigure(1, weight=1)
-
         ctk.CTkLabel(self.selection_frame, text="Fabricación:").grid(
             row=0, column=0, padx=10, pady=10
         )
@@ -1019,61 +1445,51 @@ class CalculateTimesFrame(ctk.CTkFrame):
         self.fab_search_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
         self.fab_search_entry.bind("<KeyRelease>", self.update_fab_search_results)
         self.selected_fab_code = None
-
         self.fab_search_results_frame = ctk.CTkFrame(self.selection_frame)
         self.fab_search_results_frame.grid(row=1, column=1, padx=10, sticky="ew")
-
         ctk.CTkLabel(self.selection_frame, text="Unidades a Fabricar:").grid(
             row=2, column=0, padx=10, pady=10
         )
-        self.units_entry = ctk.CTkEntry(self.selection_frame)
+        self.units_entry = ctk.CTkEntry(self.selection_frame, placeholder_text="1")
         self.units_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
+        self.units_entry.insert(0, "1")
 
-        self.calc_frame = ctk.CTkFrame(self)
-        self.calc_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-        self.calc_frame.grid_columnconfigure(0, weight=1)
+        # --- Marco de Planificación (botones lanzadores) ---
+        self.planning_frame = ctk.CTkFrame(self)
+        self.planning_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
+        self.planning_frame.grid_columnconfigure([0, 1, 2], weight=1)
+        self.planning_buttons = {}
+        departments = ["Electrónica", "Mecánica", "Montaje"]  # Orden visual
+        for i, dept in enumerate(departments):
+            btn = ctk.CTkButton(
+                self.planning_frame,
+                text=f"Planificar {dept}",
+                command=lambda d=dept: self.open_department_planner(d),
+            )
+            btn.grid(row=0, column=i, padx=10, pady=10, sticky="ew")
+            self.planning_buttons[dept] = btn
 
-        self.calc_type_var = ctk.StringVar(value="Por Tiempo")
-        self.calc_type_selector = ctk.CTkSegmentedButton(
-            self.calc_frame,
-            values=["Por Tiempo", "Por Trabajadores"],
-            variable=self.calc_type_var,
-            command=self.toggle_calc_mode,
-        )
-        self.calc_type_selector.grid(
-            row=0, column=0, columnspan=4, padx=10, pady=10, sticky="ew"
-        )
-
-        self.time_label = ctk.CTkLabel(self.calc_frame, text="Tiempo (días):")
-        self.time_entry = ctk.CTkEntry(self.calc_frame)
-
-        self.w1_label = ctk.CTkLabel(self.calc_frame, text="Trabajadores T1:")
-        self.w1_entry = ctk.CTkEntry(self.calc_frame, placeholder_text="0")
-        self.w2_label = ctk.CTkLabel(self.calc_frame, text="Trabajadores T2:")
-        self.w2_entry = ctk.CTkEntry(self.calc_frame, placeholder_text="0")
-        self.w3_label = ctk.CTkLabel(self.calc_frame, text="Trabajadores T3:")
-        self.w3_entry = ctk.CTkEntry(self.calc_frame, placeholder_text="0")
-
-        self.toggle_calc_mode("Por Tiempo")
-
+        # --- Marco de Resultados y Acciones Finales ---
         self.results_frame = ctk.CTkFrame(self)
-        self.results_frame.grid(row=3, column=0, padx=20, pady=10, sticky="nsew")
-        self.grid_rowconfigure(3, weight=1)
-
+        self.results_frame.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
+        self.grid_rowconfigure(2, weight=1)
         self.results_textbox = ctk.CTkTextbox(
             self.results_frame, state="disabled", font=("Consolas", 14)
         )
         self.results_textbox.pack(expand=True, fill="both", padx=10, pady=10)
-
         self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.action_frame.grid(row=4, column=0, padx=20, pady=10, sticky="e")
-
-        self.calc_button = ctk.CTkButton(
-            self.action_frame, text="Calcular Tiempos", command=self.perform_calculation
+        self.action_frame.grid(row=3, column=0, padx=20, pady=10, sticky="e")
+        self.gantt_button = ctk.CTkButton(
+            self.action_frame,
+            text="Generar Plan Completo",
+            command=self.generate_full_plan,
         )
-        self.calc_button.pack(side="left", padx=10)
+        self.gantt_button.pack(side="left", padx=10)
         self.export_button = ctk.CTkButton(
-            self.action_frame, text="Exportar a Excel", command=self.export_to_excel
+            self.action_frame,
+            text="Exportar a Excel",
+            command=self.export_to_excel,
+            state="disabled",
         )
         self.export_button.pack(side="left", padx=10)
 
@@ -1100,31 +1516,20 @@ class CalculateTimesFrame(ctk.CTkFrame):
         self.fab_search_entry.insert(0, texto)
         for widget in self.fab_search_results_frame.winfo_children():
             widget.destroy()
+        self.results_textbox.configure(state="normal")
+        self.results_textbox.delete("1.0", "end")
+        self.results_textbox.configure(state="disabled")
+        self.calculation_data = None
+        self.department_plans = {}
+        self.final_planned_tasks = None
+        self.export_button.configure(state="disabled")
+        for btn in self.planning_buttons.values():
+            btn.configure(fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
 
-    def toggle_calc_mode(self, value):
-        self.time_label.grid_forget()
-        self.time_entry.grid_forget()
-        self.w1_label.grid_forget()
-        self.w1_entry.grid_forget()
-        self.w2_label.grid_forget()
-        self.w2_entry.grid_forget()
-        self.w3_label.grid_forget()
-        self.w3_entry.grid_forget()
-        if value == "Por Tiempo":
-            self.time_label.grid(row=1, column=0, padx=10, pady=5)
-            self.time_entry.grid(row=1, column=1, padx=10, pady=5)
-        else:
-            self.w1_label.grid(row=1, column=0, padx=10, pady=5)
-            self.w1_entry.grid(row=1, column=1, padx=10, pady=5)
-            self.w2_label.grid(row=2, column=0, padx=10, pady=5)
-            self.w2_entry.grid(row=2, column=1, padx=10, pady=5)
-            self.w3_label.grid(row=3, column=0, padx=10, pady=5)
-            self.w3_entry.grid(row=3, column=1, padx=10, pady=5)
-
-    def get_and_validate_inputs(self):
+    def _validate_and_load_data(self):
         if not self.selected_fab_code:
-            messagebox.showerror("Error", "Debe seleccionar una fabricación.")
-            return None
+            messagebox.showerror("Error", "Primero debe seleccionar una fabricación.")
+            return None, None
         try:
             units = int(self.units_entry.get())
             if units <= 0:
@@ -1133,214 +1538,133 @@ class CalculateTimesFrame(ctk.CTkFrame):
             messagebox.showerror(
                 "Error", "El número de unidades debe ser un entero positivo."
             )
-            return None
-        self.calculation_data = self.db_manager.get_data_for_calculation(
-            self.selected_fab_code
-        )
-        if not self.calculation_data:
-            messagebox.showerror(
-                "Error", "No se pudieron cargar los datos para el cálculo."
+            return None, None
+        if self.calculation_data is None:
+            self.calculation_data = self.db_manager.get_data_for_calculation(
+                self.selected_fab_code
             )
-            return None
-        self.minutes_per_unit = {1: 0, 2: 0, 3: 0}
-        for prod in self.calculation_data:
-            if prod["tiene_subfabricaciones"]:
-                for sub in prod["sub_partes"]:
-                    tiempo_real = sub["tiempo"] * 1.20
-                    self.minutes_per_unit[sub["tipo_trabajador"]] += (
-                        tiempo_real * prod["cantidad_en_kit"]
-                    )
-            else:
-                tiempo_real = prod["tiempo_optimo"] * 1.20
-                self.minutes_per_unit[prod["tipo_trabajador"]] += (
-                    tiempo_real * prod["cantidad_en_kit"]
+            if not self.calculation_data:
+                messagebox.showerror(
+                    "Error", "No se pudieron cargar los datos para esta fabricación."
                 )
-        self.total_minutes = {k: v * units for k, v in self.minutes_per_unit.items()}
-        return units
+                return None, None
+        return units, self.calculation_data
 
-    def perform_calculation(self):
-        units = self.get_and_validate_inputs()
+    def open_department_planner(self, department_name):
+        units, calc_data = self._validate_and_load_data()
         if not units:
             return
-        calc_type = self.calc_type_var.get()
-        self.results_textbox.configure(state="normal")
-        self.results_textbox.delete("1.0", "end")
-        header = (
-            f"CÁLCULO PARA {units} UNIDAD(ES) DE '{self.selected_fab_code}'\n"
-            + "=" * 50
-            + "\n"
+        tasks_for_dept = [
+            task for task in calc_data if task["departamento"] == department_name
+        ]
+        if not tasks_for_dept:
+            messagebox.showinfo(
+                "Información",
+                f"No hay tareas de '{department_name}' en esta fabricación.",
+            )
+            return
+        planner_window = DepartmentPlanningWindow(
+            self, department_name, tasks_for_dept, units
         )
-        self.results_textbox.insert("end", header)
-        if calc_type == "Por Tiempo":
-            try:
-                days = float(self.time_entry.get().replace(",", "."))
-                if days <= 0:
-                    raise ValueError
-            except (ValueError, TypeError):
-                messagebox.showerror(
-                    "Error", "El tiempo en días debe ser un número positivo."
-                )
-                return
-            total_available_minutes_per_worker = days * self.WORKDAY_MINUTES
-            w1_needed = math.ceil(
-                self.total_minutes[1] / total_available_minutes_per_worker
-            )
-            w2_needed = math.ceil(
-                self.total_minutes[2] / total_available_minutes_per_worker
-            )
-            w3_needed = math.ceil(
-                self.total_minutes[3] / total_available_minutes_per_worker
-            )
-            self.results_textbox.insert(
-                "end", f"Para terminar en {days} días, necesitará:\n"
-            )
-            self.results_textbox.insert(
-                "end", f"  - Trabajadores Tipo 1: {w1_needed}\n"
-            )
-            self.results_textbox.insert(
-                "end", f"  - Trabajadores Tipo 2: {w2_needed}\n"
-            )
-            self.results_textbox.insert(
-                "end", f"  - Trabajadores Tipo 3: {w3_needed}\n"
-            )
-        else:
-            try:
-                w1 = int(self.w1_entry.get() or 0)
-                w2 = int(self.w2_entry.get() or 0)
-                w3 = int(self.w3_entry.get() or 0)
-            except ValueError:
-                messagebox.showerror(
-                    "Error", "El número de trabajadores debe ser un entero."
-                )
-                return
-            days1 = (
-                (self.total_minutes[1] / (w1 * self.WORKDAY_MINUTES)) if w1 > 0 else 0
-            )
-            days2 = (
-                (self.total_minutes[2] / (w2 * self.WORKDAY_MINUTES)) if w2 > 0 else 0
-            )
-            days3 = (
-                (self.total_minutes[3] / (w3 * self.WORKDAY_MINUTES)) if w3 > 0 else 0
-            )
-            total_days = max(days1, days2, days3)
-            self.results_textbox.insert(
-                "end", f"Con {w1}T1, {w2}T2, {w3}T3, necesitará:\n"
-            )
-            self.results_textbox.insert(
-                "end", f"  - Tiempo total: {total_days:.2f} días\n"
-            )
-        self.results_textbox.configure(state="disabled")
+        self.wait_window(planner_window)
+        if planner_window.plan:
+            self.department_plans[department_name] = planner_window.plan
+            logging.info(f"Plan guardado para el departamento: {department_name}")
+            self.planning_buttons[department_name].configure(fg_color="green")
 
-    # Reemplaza este método completo en la clase CalculateTimesFrame
-    def export_to_excel(self):
-        units = self.get_and_validate_inputs()
+    def generate_full_plan(self):
+        logging.info("Botón 'Generar Plan Completo' pulsado.")
+        units, _ = self._validate_and_load_data()
         if not units:
+            return
+
+        if len(self.department_plans) < len(self.planning_buttons):
+            messagebox.showwarning(
+                "Aviso",
+                "Debe planificar todos los departamentos antes de generar el plan.",
+            )
+            return
+
+        gantt_fig, planned_tasks, summary_text = crear_plan_definitivo(
+            self.department_plans, units, self.WORKDAY_MINUTES
+        )
+
+        if gantt_fig and planned_tasks is not None and summary_text:
+            self.final_planned_tasks = planned_tasks
+            self.results_textbox.configure(state="normal")
+            self.results_textbox.delete("1.0", "end")
+            self.results_textbox.insert("1.0", summary_text)
+            self.results_textbox.configure(state="disabled")
+            self.export_button.configure(state="normal")
+
+            filepath = filedialog.asksaveasfilename(
+                title="Guardar Diagrama de Gantt como...",
+                defaultextension=".html",
+                filetypes=[("HTML files", "*.html")],
+            )
+            if filepath:
+                gantt_fig.write_html(filepath)
+                messagebox.showinfo(
+                    "Plan Generado",
+                    f"El plan se ha calculado y el diagrama se ha guardado en:\n{filepath}",
+                )
+
+    def export_to_excel(self):
+        logging.info("Botón 'Exportar a Excel' pulsado.")
+        if self.final_planned_tasks is None:
+            messagebox.showerror("Error", "Primero debe generar un plan completo.")
             return
 
         filepath = filedialog.asksaveasfilename(
-            defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")]
+            title="Exportar Plan a Excel",
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
         )
         if not filepath:
             return
 
-        # --- Hoja Resumen ---
-        total_jornadas = sum(self.total_minutes.values()) / self.WORKDAY_MINUTES
-        summary_data = {
-            "Concepto": [
-                "Fabricación",
-                "Unidades Totales",
-                "Minutos Reales T1",
-                "Minutos Reales T2",
-                "Minutos Reales T3",
-                "TOTAL MINUTOS REALES",
-                "TOTAL JORNADAS LABORALES",
-            ],
-            "Valor": [
-                self.selected_fab_code,
-                units,
-                f"{self.total_minutes[1]:.2f}",
-                f"{self.total_minutes[2]:.2f}",
-                f"{self.total_minutes[3]:.2f}",
-                f"{sum(self.total_minutes.values()):.2f}",
-                f"{total_jornadas:.2f}",
-            ],
-        }
-        df_summary = pd.DataFrame(summary_data)
-
-        # --- Hojas por departamento (sin 'cantidad_en_kit' y con totales) ---
-        df_mec = pd.DataFrame(
-            [p for p in self.calculation_data if p["departamento"] == "Mecánica"]
-        )
-        df_ele = pd.DataFrame(
-            [p for p in self.calculation_data if p["departamento"] == "Electrónica"]
-        )
-        df_mon = pd.DataFrame(
-            [p for p in self.calculation_data if p["departamento"] == "Montaje"]
-        )
-
-        # CAMBIO: Eliminamos la columna 'cantidad_en_kit' de las hojas de departamento
-        for df in [df_mec, df_ele, df_mon]:
-            if "cantidad_en_kit" in df.columns:
-                df.drop(columns=["cantidad_en_kit"], inplace=True)
-            # NUEVO: Añadimos la fila de totales (sumando solo el tiempo)
-            if not df.empty:
-                df.loc["Total"] = pd.Series(
-                    df["tiempo_optimo"].sum(), index=["tiempo_optimo"]
-                )
-
-        # --- Hoja de Desglose (sin 'cantidad_en_kit') ---
-        all_parts = []
-        for p in self.calculation_data:
-            if p["tiene_subfabricaciones"]:
-                for s in p["sub_partes"]:
-                    # CAMBIO: Se elimina p["cantidad_en_kit"] de la lista
-                    all_parts.append(
-                        [
-                            p["codigo"],
-                            s["descripcion"],
-                            s["tiempo"],
-                            s["tiempo"] * 1.20,
-                            s["tipo_trabajador"],
-                        ]
-                    )
-            else:
-                # CAMBIO: Se elimina p["cantidad_en_kit"] de la lista
-                all_parts.append(
-                    [
-                        p["codigo"],
-                        p["descripcion"],
-                        p["tiempo_optimo"],
-                        p["tiempo_optimo"] * 1.20,
-                        p["tipo_trabajador"],
-                    ]
-                )
-
-        # CAMBIO: Se elimina "Cant. en Kit" de las columnas
-        df_detail = pd.DataFrame(
-            all_parts,
-            columns=[
-                "Producto Padre",
-                "Descripción Parte",
-                "Tiempo Óptimo",
-                "Tiempo Real",
-                "Tipo Trab.",
-            ],
-        )
-
-        # --- Escribir el archivo Excel ---
-        with pd.ExcelWriter(filepath) as writer:
-            # NUEVO: Se añade el título de la fabricación en la hoja de resumen
-            pd.DataFrame([self.fab_search_entry.get()]).to_excel(
-                writer, sheet_name="Resumen", startrow=0, header=False, index=False
+        try:
+            df = pd.DataFrame(self.final_planned_tasks)
+            df_export = df.copy()
+            df_export["Inicio"] = pd.to_datetime(df_export["Inicio"]).dt.strftime(
+                "%d-%m-%Y %H:%M"
             )
-            df_summary.to_excel(writer, sheet_name="Resumen", startrow=2, index=False)
+            df_export["Fin"] = pd.to_datetime(df_export["Fin"]).dt.strftime(
+                "%d-%m-%Y %H:%M"
+            )
 
-            df_mec.to_excel(writer, sheet_name="Mecanica", index=True)
-            df_ele.to_excel(writer, sheet_name="Electronica", index=True)
-            df_mon.to_excel(writer, sheet_name="Montaje", index=True)
-            df_detail.to_excel(writer, sheet_name="Desglose Completo", index=False)
+            # Crear una hoja de resumen
+            summary_df = (
+                df.groupby("Departamento")["Duracion (min)"].sum().reset_index()
+            )
+            summary_df["Duracion (horas)"] = round(summary_df["Duracion (min)"] / 60, 2)
+            summary_df["Duracion (jornadas)"] = round(
+                summary_df["Duracion (min)"] / self.WORKDAY_MINUTES, 2
+            )
 
-        messagebox.showinfo("Éxito", f"Informe exportado a\n{filepath}")
+            with pd.ExcelWriter(filepath, engine="xlsxwriter") as writer:
+                # Hoja 1: Plan Detallado Completo
+                df_export.to_excel(writer, sheet_name="Plan Detallado", index=False)
+
+                # Hoja 2: Resumen por Departamento
+                summary_df.to_excel(
+                    writer, sheet_name="Resumen por Departamento", index=False
+                )
+
+                # Hojas individuales para cada departamento
+                for dept in ["Electrónica", "Mecánica", "Montaje"]:
+                    dept_df = df_export[df_export["Departamento"] == dept]
+                    if not dept_df.empty:
+                        dept_df.to_excel(writer, sheet_name=dept, index=False)
+
+            messagebox.showinfo(
+                "Éxito", f"El plan detallado ha sido exportado a:\n{filepath}"
+            )
+        except Exception as e:
+            logging.error(f"Error al exportar a Excel: {e}")
+            messagebox.showerror(
+                "Error de Exportación", f"No se pudo guardar el archivo Excel:\n{e}"
+            )
 
 
 # =================================================================================
@@ -1456,22 +1780,49 @@ class SettingsFrame(ctk.CTkFrame):
 # CLASE PRINCIPAL DE LA APLICACIÓN
 # =================================================================================
 class App(ctk.CTk):
-    # Reemplaza este método completo en tu clase App
     def __init__(self):
         super().__init__()
+
+        logging.info("Iniciando la aplicación principal.")
         self.title("Calculadora de Tiempos de Montaje")
         self.geometry("1100x720")
 
-        # Lógica de Configuración y BD
-        self.config = configparser.ConfigParser()
-        self.config.read("config.ini")
-        if "Database" not in self.config:
-            self.config["Database"] = {"path": "montaje.db"}
-            with open("config.ini", "w") as configfile:
-                self.config.write(configfile)
-        self.db_path = self.config["Database"]["path"]
-        self.db_manager = DatabaseManager(db_path=self.db_path)
+        try:
+            # --- Lógica de Configuración y BD (MODIFICADA) ---
+            config_path = resource_path("config.ini")
+            self.config = configparser.ConfigParser()
+            self.config.read(config_path)
 
+            if "Database" not in self.config:
+                self.config["Database"] = {"path": "montaje.db"}
+                with open(config_path, "w") as configfile:
+                    self.config.write(configfile)
+
+            # Obtenemos la ruta relativa del config y la convertimos a absoluta
+            db_filename = self.config["Database"]["path"]
+            self.db_path = resource_path(db_filename)
+
+            self.db_manager = DatabaseManager(db_path=self.db_path)
+            logging.info(f"Conexión a la base de datos establecida en: {self.db_path}")
+
+        except configparser.Error as e:
+            logging.critical(
+                f"Error CRÍTICO leyendo o escribiendo '{config_path}': {e}"
+            )
+            messagebox.showerror(
+                "Error Crítico", f"No se pudo leer el archivo de configuración: {e}"
+            )
+            self.destroy()
+            return
+        except Exception as e:
+            logging.critical(f"Error CRÍTICO al inicializar DatabaseManager: {e}")
+            messagebox.showerror(
+                "Error Crítico", f"No se pudo conectar a la base de datos: {e}"
+            )
+            self.destroy()
+            return
+
+        # --- El resto del __init__ sigue exactamente igual ---
         # Layout Principal
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -1479,7 +1830,7 @@ class App(ctk.CTk):
         # Barra de Navegación Lateral
         self.navigation_frame = ctk.CTkFrame(self, width=140, corner_radius=0)
         self.navigation_frame.grid(row=0, column=0, sticky="nsew")
-        self.navigation_frame.grid_rowconfigure(6, weight=1)  # Espacio de empuje
+        self.navigation_frame.grid_rowconfigure(6, weight=1)
 
         self.navigation_frame_label = ctk.CTkLabel(
             self.navigation_frame,
@@ -1488,10 +1839,9 @@ class App(ctk.CTk):
         )
         self.navigation_frame_label.grid(row=0, column=0, padx=20, pady=20)
 
-        # Botones (Añadido "Inicio" y corregido el orden)
         self.buttons = {}
         button_info = [
-            ("Inicio", "home"),  # <-- BOTÓN NUEVO
+            ("Inicio", "home"),
             ("Añadir Productos", "add_product"),
             ("Crear Fabricación", "create_fabrication"),
             ("Editar / Visualizar", "edit"),
@@ -1512,17 +1862,17 @@ class App(ctk.CTk):
             text="¿Cómo funciona?",
             command=lambda: self.select_frame_by_name("help"),
         )
-        self.help_button.grid(row=7, column=0, padx=20, pady=10)  # Fila ajustada
+        self.help_button.grid(row=7, column=0, padx=20, pady=10)
 
         self.settings_button = ctk.CTkButton(
             self.navigation_frame,
             text="Configuración",
             command=lambda: self.select_frame_by_name("settings"),
         )
-        self.settings_button.grid(row=8, column=0, padx=20, pady=20)  # Fila ajustada
+        self.settings_button.grid(row=8, column=0, padx=20, pady=20)
 
-        # Creación de TODOS los Frames (Añadido home_frame)
-        self.home_frame = HomeFrame(self)  # <-- FRAME NUEVO
+        # Creación de TODOS los Frames
+        self.home_frame = HomeFrame(self)
         self.add_product_frame = AddProductFrame(self, self.db_manager)
         self.create_fabrication_frame = CreateFabricacionFrame(self, self.db_manager)
         self.edit_frame = EditFrame(self, self.db_manager)
@@ -1530,8 +1880,7 @@ class App(ctk.CTk):
         self.help_frame = HelpFrame(self)
         self.settings_frame = SettingsFrame(self, self)
 
-        # Selección del Frame Inicial
-        self.select_frame_by_name("home")  # <-- Empezamos en la pantalla de Inicio
+        self.select_frame_by_name("home")
 
     # Reemplaza este método completo en tu clase App
     def select_frame_by_name(self, name):
