@@ -1716,23 +1716,64 @@ class SettingsFrame(ctk.CTkFrame):
         super().__init__(parent)
         self.app_instance = app_instance
         self.grid_columnconfigure(0, weight=1)
+
         ctk.CTkLabel(
             self,
-            text="Configuración de la Base de Datos",
+            text="Configuración de la Aplicación",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).grid(row=0, column=0, padx=20, pady=(20, 10))
+
+        # --- Marco para la gestión de la Base de Datos ---
+        db_frame = ctk.CTkFrame(self)
+        db_frame.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
+        db_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            db_frame,
+            text="Gestión de la Base de Datos",
             font=ctk.CTkFont(size=16, weight="bold"),
-        ).grid(row=0, column=0, padx=20, pady=20)
+        ).grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
+
+        # Muestra la ruta actual
         self.db_path_label = ctk.CTkLabel(
-            self, text=f"Ubicación actual: {self.app_instance.db_path}", wraplength=400
+            db_frame,
+            text=f"Ubicación actual: {self.app_instance.db_path}",
+            wraplength=500,
+            justify="left",
         )
-        self.db_path_label.grid(row=1, column=0, padx=20, pady=10)
+        self.db_path_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+
+        # NUEVO BOTÓN para cambiar la ruta de la BD
+        self.change_path_button = ctk.CTkButton(
+            db_frame,
+            text="Seleccionar o Cambiar Archivo de Base de Datos",
+            command=self.change_db_path,
+        )
+        self.change_path_button.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
+
+        # --- Marco para Copias de Seguridad ---
+        backup_frame = ctk.CTkFrame(self)
+        backup_frame.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        backup_frame.grid_columnconfigure(0, weight=1)
+        backup_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            backup_frame,
+            text="Copias de Seguridad (Backup)",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 5), sticky="w")
+
         self.export_button = ctk.CTkButton(
-            self, text="Exportar Base de Datos (Backup)", command=self.export_db
+            backup_frame, text="Exportar Base de Datos Actual", command=self.export_db
         )
-        self.export_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+        self.export_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+
         self.import_button = ctk.CTkButton(
-            self, text="Importar Base de Datos (Restaurar)", command=self.import_db
+            backup_frame,
+            text="Importar Base de Datos desde un Backup",
+            command=self.import_db,
         )
-        self.import_button.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        self.import_button.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
 
     def export_db(self):
         dest_path = filedialog.asksaveasfilename(
@@ -1773,6 +1814,49 @@ class SettingsFrame(ctk.CTkFrame):
             except Exception as e:
                 messagebox.showerror(
                     "Error", f"No se pudo importar la base de datos:\n{e}"
+                )
+
+    def change_db_path(self):
+        """Abre un diálogo para que el usuario seleccione un nuevo archivo de base de datos."""
+        # Se abre en el directorio donde está la BD actual para facilitar la búsqueda
+        initial_dir = os.path.dirname(self.app_instance.db_path)
+
+        new_path = filedialog.askopenfilename(
+            title="Seleccionar archivo de base de datos (.db)",
+            initialdir=initial_dir,
+            filetypes=[("Database files", "*.db"), ("All files", "*.*")],
+        )
+
+        # Si el usuario selecciona un archivo y no cancela
+        if new_path and os.path.exists(new_path):
+            logging.info(
+                f"El usuario ha seleccionado una nueva ruta para la BD: {new_path}"
+            )
+            try:
+                # Actualiza el objeto de configuración en memoria
+                self.app_instance.config.set("Database", "path", new_path)
+
+                # Guarda el cambio en el archivo config.ini físico
+                config_path = resource_path("config.ini")
+                with open(config_path, "w") as configfile:
+                    self.app_instance.config.write(configfile)
+                logging.info(
+                    "El archivo config.ini ha sido actualizado con la nueva ruta."
+                )
+
+                # Informa al usuario y reinicia la aplicación
+                messagebox.showinfo(
+                    "Cambio Exitoso",
+                    "La ubicación de la base de datos ha sido actualizada.\nLa aplicación se reiniciará para aplicar los cambios.",
+                )
+                self.app_instance.restart_app()
+
+            except Exception as e:
+                logging.error(
+                    f"Error al intentar cambiar la ruta de la base de datos: {e}"
+                )
+                messagebox.showerror(
+                    "Error", f"No se pudo cambiar la ruta de la base de datos:\n{e}"
                 )
 
 
