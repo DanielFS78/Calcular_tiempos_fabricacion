@@ -1,0 +1,135 @@
+2025-07-28 08:27:27,893 - INFO - El programa ha iniciado.
+2025-07-28 08:27:28,601 - INFO - Iniciando la aplicación principal.
+2025-07-28 08:27:28,794 - ERROR - Error al crear las tablas de la BD: near ".": syntax error
+2025-07-28 08:27:28,795 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 08:27:28,795 - INFO - Conexión a la base de datos establecida en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 08:27:29,075 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 08:27:30,568 - INFO - Frase obtenida con éxito de la API.
+2025-07-28 08:35:10,925 - INFO - El programa ha iniciado.
+2025-07-28 08:35:10,987 - INFO - Iniciando la aplicación principal.
+2025-07-28 08:35:10,987 - ERROR - Error al crear las tablas de la BD: near ".": syntax error
+2025-07-28 08:35:10,987 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 08:35:10,987 - INFO - Conexión a la base de datos establecida en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 08:35:11,015 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 08:35:12,316 - INFO - Frase obtenida con éxito de la API.
+2025-07-28 08:35:42,404 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 09:11:47,454 - INFO - El programa ha iniciado.
+2025-07-28 09:11:48,544 - INFO - Iniciando la aplicación principal.
+2025-07-28 09:11:48,548 - ERROR - Error al crear las tablas de la BD: near ".": syntax error
+2025-07-28 09:11:48,548 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:11:48,548 - INFO - Conexión a la base de datos establecida en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:11:48,886 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 09:11:50,556 - INFO - Frase obtenida con éxito de la API.
+2025-07-28 09:12:02,346 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 09:12:40,169 - INFO - El programa ha iniciado.
+2025-07-28 09:12:41,043 - INFO - Iniciando la aplicación principal.
+2025-07-28 09:12:41,046 - ERROR - Error al crear las tablas de la BD: near ".": syntax error
+2025-07-28 09:12:41,046 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:12:41,046 - INFO - Conexión a la base de datos establecida en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:12:41,802 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 09:12:51,647 - INFO - Frase obtenida con éxito de la API.
+2025-07-28 09:20:36,147 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 09:20:51,101 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 09:51:36,730 - INFO - El programa ha iniciado.
+2025-07-28 09:51:36,921 - INFO - Iniciando la aplicación principal.
+2025-07-28 09:51:36,938 - ERROR - Error al crear las tablas de la BD: near ".": syntax error
+2025-07-28 09:51:36,938 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:51:36,938 - INFO - Conexión a la base de datos establecida en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 09:51:37,002 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 09:51:46,109 - INFO - Frase obtenida con éxito de la API.
+2025-07-28 11:18:01,916 - INFO - El programa ha iniciado.
+2025-07-28 11:31:33,846 - INFO - El programa ha iniciado.
+2025-07-28 11:51:16,364 - INFO - El programa ha iniciado.
+2025-07-28 11:52:18,243 - INFO - El programa ha iniciado.
+2025-07-28 11:57:48,001 - INFO - El programa ha iniciado.
+2025-07-28 12:00:47,654 - INFO - El programa ha iniciado.
+2025-07-28 12:00:47,679 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-28 12:00:48,220 - INFO - Iniciando App.__init__...
+2025-07-28 12:00:48,234 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-28 12:00:48,234 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 12:00:48,235 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-28 12:00:48,327 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 12:00:51,096 - INFO - App.__init__ completado con éxito.
+2025-07-28 12:00:51,096 - INFO - Iniciando mainloop de la aplicación.
+2025-07-28 12:01:16,266 - INFO - Plan guardado para el departamento: Electrónica
+2025-07-28 12:01:26,159 - INFO - Plan guardado para el departamento: Mecánica
+2025-07-28 12:01:39,102 - INFO - Plan guardado para el departamento: Montaje
+2025-07-28 12:01:49,166 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:01:49,166 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:01:49,166 - INFO - Scheduler inicializado.
+2025-07-28 12:02:29,835 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 12:03:36,069 - INFO - El programa ha iniciado.
+2025-07-28 12:03:36,081 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-28 12:03:36,344 - INFO - Iniciando App.__init__...
+2025-07-28 12:03:36,348 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-28 12:03:36,348 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 12:03:36,348 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-28 12:03:36,417 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 12:03:39,395 - INFO - App.__init__ completado con éxito.
+2025-07-28 12:03:39,395 - INFO - Iniciando mainloop de la aplicación.
+2025-07-28 12:04:06,073 - INFO - Plan guardado para el departamento: Electrónica
+2025-07-28 12:04:19,405 - INFO - Plan guardado para el departamento: Mecánica
+2025-07-28 12:04:34,053 - INFO - Plan guardado para el departamento: Montaje
+2025-07-28 12:04:41,824 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:04:41,824 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:04:41,824 - INFO - Scheduler inicializado.
+2025-07-28 12:04:41,825 - ERROR - No se pudo encontrar la siguiente tarea a planificar. Posible deadlock de dependencias o falta de trabajadores.
+2025-07-28 12:04:41,825 - INFO - Simulación completada.
+2025-07-28 12:04:44,943 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 12:05:04,687 - INFO - El programa ha iniciado.
+2025-07-28 12:05:04,713 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-28 12:05:04,930 - INFO - Iniciando App.__init__...
+2025-07-28 12:05:04,934 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-28 12:05:04,934 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 12:05:04,934 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-28 12:05:04,992 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 12:05:09,799 - INFO - App.__init__ completado con éxito.
+2025-07-28 12:05:09,799 - INFO - Iniciando mainloop de la aplicación.
+2025-07-28 12:05:34,657 - INFO - Plan guardado para el departamento: Electrónica
+2025-07-28 12:05:44,464 - INFO - Plan guardado para el departamento: Mecánica
+2025-07-28 12:05:53,800 - INFO - Plan guardado para el departamento: Montaje
+2025-07-28 12:05:59,423 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:05:59,423 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:05:59,423 - INFO - Scheduler inicializado.
+2025-07-28 12:05:59,424 - ERROR - No se pudo encontrar la siguiente tarea a planificar. Posible deadlock de dependencias o falta de trabajadores.
+2025-07-28 12:05:59,424 - INFO - Simulación completada.
+2025-07-28 12:06:29,882 - ERROR - Error al exportar a Excel: No module named 'xlsxwriter'
+2025-07-28 12:06:40,394 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 12:09:35,756 - INFO - El programa ha iniciado.
+2025-07-28 12:09:35,756 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-28 12:09:35,867 - INFO - Iniciando App.__init__...
+2025-07-28 12:09:35,870 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-28 12:09:35,870 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 12:09:35,870 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-28 12:09:35,910 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 12:09:37,400 - INFO - App.__init__ completado con éxito.
+2025-07-28 12:09:37,400 - INFO - Iniciando mainloop de la aplicación.
+2025-07-28 12:10:11,397 - INFO - Plan guardado para el departamento: Electrónica
+2025-07-28 12:10:24,025 - INFO - Plan guardado para el departamento: Mecánica
+2025-07-28 12:10:34,365 - INFO - Plan guardado para el departamento: Montaje
+2025-07-28 12:10:42,976 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:10:42,982 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:10:50,222 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:10:50,222 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:10:54,085 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:10:54,087 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:10:57,826 - INFO - Conexión a la base de datos cerrada.
+2025-07-28 12:16:21,074 - INFO - El programa ha iniciado.
+2025-07-28 12:16:21,096 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-28 12:16:23,257 - INFO - Iniciando App.__init__...
+2025-07-28 12:16:23,697 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-28 12:16:23,697 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion-main\montaje.db
+2025-07-28 12:16:23,697 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-28 12:16:23,747 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-28 12:16:27,241 - INFO - App.__init__ completado con éxito.
+2025-07-28 12:16:27,241 - INFO - Iniciando mainloop de la aplicación.
+2025-07-28 12:16:49,419 - INFO - Plan guardado para el departamento: Electrónica
+2025-07-28 12:16:58,872 - INFO - Plan guardado para el departamento: Mecánica
+2025-07-28 12:17:03,640 - INFO - Plan guardado para el departamento: Montaje
+2025-07-28 12:17:18,230 - INFO - Botón 'Generar Plan Completo' pulsado.
+2025-07-28 12:17:18,230 - INFO - Se transfirieron 1 trabajadores T3 de Mecánica a Montaje
+2025-07-28 12:17:18,230 - INFO - Scheduler inicializado.
+2025-07-28 12:17:18,231 - ERROR - No se pudo encontrar la siguiente tarea a planificar. Posible deadlock de dependencias.
+2025-07-28 12:17:18,231 - INFO - Simulación completada.
+2025-07-28 12:17:40,340 - ERROR - Error al exportar a Excel: No module named 'xlsxwriter'
+2025-07-28 12:19:22,312 - INFO - Conexión a la base de datos cerrada.
