@@ -133,3 +133,13 @@
 2025-07-28 12:17:18,231 - INFO - Simulación completada.
 2025-07-28 12:17:40,340 - ERROR - Error al exportar a Excel: No module named 'xlsxwriter'
 2025-07-28 12:19:22,312 - INFO - Conexión a la base de datos cerrada.
+2025-07-30 08:29:14,077 - INFO - El programa ha iniciado.
+2025-07-30 08:29:14,081 - INFO - Bloque __main__ alcanzado. Creando instancia de App.
+2025-07-30 08:29:14,899 - INFO - Iniciando App.__init__...
+2025-07-30 08:29:14,908 - INFO - Tablas de la base de datos verificadas/creadas con éxito.
+2025-07-30 08:29:14,908 - INFO - Conexión exitosa a la base de datos en: C:\Programacion\Calcular_tiempos_fabricacion\montaje.db
+2025-07-30 08:29:14,909 - INFO - Configuración y base de datos cargadas con éxito.
+2025-07-30 08:29:14,946 - INFO - Intentando obtener frase desde la API: https://frasedeldia.azurewebsites.net/api/phrase
+2025-07-30 08:29:17,792 - INFO - App.__init__ completado con éxito.
+2025-07-30 08:29:17,792 - INFO - Iniciando mainloop de la aplicación.
+2025-07-30 08:29:21,409 - INFO - Conexión a la base de datos cerrada.

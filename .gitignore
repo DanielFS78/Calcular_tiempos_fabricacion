@@ -1,23 +1,23 @@
+# Entornos virtuales
+venv/
+*.venv
+env/
+
 # Archivos de cache de Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# Entornos virtuales
-venv/
-env/
+# Archivos del editor/IDE
+.idea/
+.vscode/
 
-# Archivos de base de datos y logs
-*.db
-*.db-journal*
-app.log
-
-# Archivos generados por PyInstaller
-dist/
-build/
+# Archivos de compilación de PyInstaller
+/dist/
+/build/
 *.spec
 
-# Archivos de configuración de IDEs
-.vscode/
-.idea/
+# Archivos generados por la aplicación
+*.html
+
+# Archivos del sistema operativo
+.DS_Store

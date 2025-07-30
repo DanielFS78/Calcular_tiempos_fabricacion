@@ -8,7 +8,7 @@
 # =================================================================================
 
 import sqlite3
-import logging  # <-- AÑADIDO
+import logging
 
 
 class DatabaseManager:
@@ -36,119 +36,42 @@ class DatabaseManager:
             return
         try:
             self.cursor.execute("""
-                                CREATE TABLE IF NOT EXISTS productos
-                                (
-                                    codigo
-                                    TEXT
-                                    PRIMARY
-                                    KEY,
-                                    descripcion
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    departamento
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    tipo_trabajador
-                                    INTEGER
-                                    NOT
-                                    NULL,
-                                    donde
-                                    TEXT,
-                                    tiene_subfabricaciones
-                                    INTEGER
-                                    NOT
-                                    NULL,
-                                    tiempo_optimo
-                                    REAL
-                                )
-                                """)
+                CREATE TABLE IF NOT EXISTS productos (
+                    codigo TEXT PRIMARY KEY,
+                    descripcion TEXT NOT NULL,
+                    departamento TEXT NOT NULL,
+                    tipo_trabajador INTEGER NOT NULL,
+                    donde TEXT,
+                    tiene_subfabricaciones INTEGER NOT NULL,
+                    tiempo_optimo REAL
+                )
+            """)
             self.cursor.execute("""
-                                CREATE TABLE IF NOT EXISTS subfabricaciones
-                                (
-                                    id
-                                    INTEGER
-                                    PRIMARY
-                                    KEY
-                                    AUTOINCREMENT,
-                                    producto_codigo
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    descripcion
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    tiempo
-                                    REAL
-                                    NOT
-                                    NULL,
-                                    tipo_trabajador
-                                    INTEGER
-                                    NOT
-                                    NULL,
-                                    FOREIGN
-                                    KEY
-                                (
-                                    producto_codigo
-                                ) REFERENCES productos
-                                (
-                                    codigo
-                                ) ON DELETE CASCADE
-                                    )
-                                """)
+                CREATE TABLE IF NOT EXISTS subfabricaciones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    producto_codigo TEXT NOT NULL,
+                    descripcion TEXT NOT NULL,
+                    tiempo REAL NOT NULL,
+                    tipo_trabajador INTEGER NOT NULL,
+                    FOREIGN KEY (producto_codigo) REFERENCES productos (codigo) ON DELETE CASCADE
+                )
+            """)
             self.cursor.execute("""
-                                CREATE TABLE IF NOT EXISTS fabricaciones
-                                (
-                                    codigo
-                                    TEXT
-                                    PRIMARY
-                                    KEY,
-                                    descripcion
-                                    TEXT
-                                    NOT
-                                    NULL
-                                )
-                                """)
+                CREATE TABLE IF NOT EXISTS fabricaciones (
+                    codigo TEXT PRIMARY KEY,
+                    descripcion TEXT NOT NULL
+                )
+            """)
             self.cursor.execute("""
-                                CREATE TABLE IF NOT EXISTS fabricacion_contenido
-                                (
-                                    id
-                                    INTEGER
-                                    PRIMARY
-                                    KEY
-                                    AUTOINCREMENT,
-                                    fabricacion_codigo
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    producto_codigo
-                                    TEXT
-                                    NOT
-                                    NULL,
-                                    cantidad
-                                    INTEGER
-                                    NOT
-                                    NULL,
-                                    FOREIGN
-                                    KEY
-                                (
-                                    fabricacion_codigo
-                                ) REFERENCES fabricaciones
-                                (
-                                    codigo
-                                ) ON DELETE CASCADE,
-                                    FOREIGN KEY
-                                (
-                                    producto_codigo
-                                ) REFERENCES productos
-                                (
-                                    codigo
-                                )
-                                  ON DELETE CASCADE
-                                    )
-                                """)
+                CREATE TABLE IF NOT EXISTS fabricacion_contenido (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fabricacion_codigo TEXT NOT NULL,
+                    producto_codigo TEXT NOT NULL,
+                    cantidad INTEGER NOT NULL,
+                    FOREIGN KEY (fabricacion_codigo) REFERENCES fabricaciones (codigo) ON DELETE CASCADE,
+                    FOREIGN KEY (producto_codigo) REFERENCES productos (codigo) ON DELETE CASCADE
+                )
+            """)
             self.conn.commit()
             logging.info("Tablas de la base de datos verificadas/creadas con éxito.")
         except sqlite3.Error as e:

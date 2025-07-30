@@ -5,7 +5,12 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('montaje.db', '.'), ('config.ini', '.')],
+    datas=[
+    ('montaje.db', '.'),
+    ('config.ini', '.'),
+    ('gantt_template.html', '.'),
+    ('js/highcharts-gantt.js', 'js')
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -25,7 +25,7 @@ def is_workday(current_date):
     Verifica si una fecha es un día laborable.
     Un día laborable es de lunes a viernes y no es festivo.
     """
-    if current_date.weekday() >= 5:  # Es Sábado o Domingo
+    if current_date.weekday() >= 5:  # Es Sábado (5) o Domingo (6)
         return False
     if current_date in HOLIDAYS:  # Es un día festivo
         return False
@@ -40,24 +40,42 @@ def add_work_minutes(start_datetime, minutes_to_add, WORKDAY_MINUTES):
     current_datetime = start_datetime
     remaining_minutes = minutes_to_add
 
+    # Asegurarse de que start_datetime sea un día laborable y una hora de trabajo
+    # Si la tarea empieza fuera de horas o en día no laborable, avanza al próximo día/hora de trabajo
+    while not is_workday(current_datetime.date()) or current_datetime.hour < 0 or current_datetime.hour >= 24: # Asumimos jornada completa por ahora
+         current_datetime += timedelta(minutes=1) # Avanzamos minuto a minuto para encontrar el próximo inicio de jornada
+         if current_datetime.hour == 0 and current_datetime.minute == 0: # Si pasamos a un nuevo día
+             if not is_workday(current_datetime.date()):
+                 current_datetime = datetime.combine(current_datetime.date() + timedelta(days=1), datetime.min.time())
+
+
     while remaining_minutes > 0:
         current_date = current_datetime.date()
 
         if is_workday(current_date):
-            end_of_workday = datetime.combine(current_date, datetime.max.time())
-            minutes_left_in_day = (
-                end_of_workday - current_datetime
-            ).total_seconds() / 60
-            minutes_in_day = min(minutes_left_in_day, WORKDAY_MINUTES)
+            # Asumimos que la jornada laboral es de 00:00 a 24:00 (WORKDAY_MINUTES es total de minutos laborables al día)
+            # Esto simplifica la lógica de jornada continua en el Scheduler.
+            # Si tienes horarios de trabajo específicos (ej. 8:00-17:00), necesitaríamos ajustar esto.
+            end_of_current_day_work = datetime.combine(current_date, datetime.min.time()) + timedelta(minutes=WORKDAY_MINUTES)
 
-            if remaining_minutes <= minutes_in_day:
+            # Minutos restantes en la jornada actual desde current_datetime hasta end_of_current_day_work
+            minutes_left_in_day = (end_of_current_day_work - current_datetime).total_seconds() / 60
+
+            if minutes_left_in_day <= 0: # Ya hemos pasado el tiempo de trabajo de hoy
+                next_day = current_date + timedelta(days=1)
+                current_datetime = datetime.combine(next_day, datetime.min.time())
+                continue # Volver a verificar si el nuevo día es laborable
+
+            if remaining_minutes <= minutes_left_in_day:
                 current_datetime += timedelta(minutes=remaining_minutes)
                 remaining_minutes = 0
             else:
-                remaining_minutes -= minutes_in_day
+                remaining_minutes -= minutes_left_in_day
+                current_datetime = end_of_current_day_work # Llega al final de la jornada actual
                 next_day = current_date + timedelta(days=1)
                 current_datetime = datetime.combine(next_day, datetime.min.time())
         else:
+            # Si no es día laborable, simplemente salta al siguiente día
             next_day = current_date + timedelta(days=1)
             current_datetime = datetime.combine(next_day, datetime.min.time())
 
@@ -89,3 +107,32 @@ def count_workdays(start_datetime, end_datetime):
         ).total_seconds() / (24 * 3600)
 
     return round(workdays, 2) if workdays > 0 else 1
+
+def get_non_work_plot_bands(start_date, end_date):
+    """
+    Genera una lista de diccionarios para Highcharts plotBands para marcar
+    fines de semana y festivos entre dos fechas.
+    """
+    plot_bands = []
+    current_day = start_date.date()
+    one_day = timedelta(days=1)
+
+    while current_day <= end_date.date() + one_day: # Ir un día más allá para asegurar cubrir el último día
+        if not is_workday(current_day):
+            # Highcharts usa milisegundos desde epoch para las fechas
+            from_ms = datetime.combine(current_day, datetime.min.time()).timestamp() * 1000
+            to_ms = datetime.combine(current_day + one_day, datetime.min.time()).timestamp() * 1000
+
+            plot_bands.append({
+                'from': from_ms,
+                'to': to_ms,
+                'color': 'rgba(200, 200, 200, 0.2)', # Gris claro transparente
+                'label': {
+                    'text': 'No laborable',
+                    'style': {
+                        'color': '#606060'
+                    }
+                }
+            })
+        current_day += one_day
+    return plot_bands

@@ -5,16 +5,19 @@ import logging
 import os
 import shutil
 import sys
+import sqlite3
 from tkinter import messagebox, filedialog
+from datetime import datetime # Asegúrate de que datetime esté importado correctamente
 
 import customtkinter as ctk
 import pandas as pd
-import plotly.express as px
 import requests
 from tkcalendar import DateEntry
 
-from calendar_helper import count_workdays, is_workday
-from simulation_engine import Scheduler, Task, ResourceManager
+# Importaciones de tus módulos locales
+from calendar_helper import count_workdays, is_workday, get_non_work_plot_bands
+from simulation_engine import Scheduler, Task, ResourceManager # noinspection PyUnresolvedReferences
+from database_manager import DatabaseManager
 
 
 def resource_path(relative_path):
@@ -22,72 +25,100 @@ def resource_path(relative_path):
     try:
         # noinspection PyUnresolvedReferences,PyProtectedMember
         base_path = sys._MEIPASS
-    except Exception:
+    except AttributeError: # Cambiado de Exception a AttributeError para ser más específico
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
 
-def create_gantt_chart(planned_tasks, units):
+def create_gantt_chart(planned_tasks, units, annotations=None): # <-- Añadido annotations=None aquí
     """
-    Toma una lista de tareas ya planificadas y genera un Gráfico Gantt con Plotly.
+    Toma una lista de tareas ya planificadas y genera un Gráfico Gantt con Highcharts.
+    Incluye un tooltip personalizado, una vista de calendario de fondo y anotaciones.
+    """
+    if annotations is None: # Asegurarse de que annotations sea una lista mutable por defecto
+        annotations = []
 
-    """
     if not planned_tasks:
         return None
 
-    df = pd.DataFrame(planned_tasks)
+    worker_categories_order = []
+    processed_workers = set()
+    highcharts_data = [] # <-- Inicializar aquí
+    min_date = datetime.max # <-- Inicializar aquí
+    max_date = datetime.min # <-- Inicializar aquí
 
-    # Crear la plantilla del tooltip con HTML [cite: 49]
-    hovertemplate = (
-            "<b>%{customdata[0]}</b><br>" +
-            "Departamento: %{customdata[1]}<br>" +
-            "Asignado a: %{customdata[2]} (Tipo %{customdata[3]})<br>" +
-            "Inicio: %{x|%d-%m-%Y %H:%M}<br>" +
-            "Fin: %{customdata[4]|%d-%m-%Y %H:%M}<br>" +
-            "Duración: %{customdata[5]:.2f} min<br>" +
-            "<hr>" +
-            "<em><span style='color: #00BFFF;'>%{customdata[6]}</span></em>" +
-            "<extra></extra>"
+    # Ordenar las tareas por inicio para que Highcharts las pinte bien
+    planned_tasks_sorted = sorted(planned_tasks, key=lambda x: x['Inicio'])
+
+    # Bucle para rellenar worker_categories_order y obtener min/max dates
+    for task in planned_tasks_sorted:
+        worker_id = task['Trabajador Asignado']
+        if worker_id not in processed_workers:
+            worker_categories_order.append(worker_id)
+            processed_workers.add(worker_id)
+
+        min_date = min(min_date, task['Inicio'])
+        max_date = max(max_date, task['Fin'])
+
+        # Lógica para mejorar el nombre de la tarea con emojis según el motivo
+        task_name_display = task['Tarea']
+        reason = task['Motivo Inicio'].lower()
+
+        if "esperó a que" in reason and "estuviera libre" in reason:
+            task_name_display = f"⏳ {task_name_display}"  # Indicar espera de trabajador
+        elif "comenzó al finalizar todas las dependencias" in reason:
+            task_name_display = f"🔗 {task_name_display}"  # Indicar espera de dependencias
+        elif "se transfirieron" in reason: # Aunque la transferencia es una anotación, si aparece en el motivo de una tarea
+            task_name_display = f"🔄 {task_name_display}"  # Indicar que se inició por transferencia
+
+        highcharts_data.append({
+            'name': task_name_display,
+            'id': task['Tarea'] + str(task['Inicio'].timestamp()), # ID más único para Highcharts
+            'start': task['Inicio'].timestamp() * 1000, # Highcharts usa timestamps en milisegundos
+            'end': task['Fin'].timestamp() * 1000,
+            'y': worker_categories_order.index(task['Trabajador Asignado']), # Índice en la categoría de trabajadores
+            'department': task['Departamento'],
+            'worker': task['Trabajador Asignado'],
+            'workerType': task['Tipo Trabajador'],
+            'durationMin': task['Duracion (min)'],
+            'startReason': task['Motivo Inicio'] if task['Motivo Inicio'] else 'Sin motivo específico'
+        })
+
+    # Generar los plotBands para días no laborables
+    non_work_plot_bands = get_non_work_plot_bands(min_date, max_date)
+
+    # Highcharts Gantt necesita una única serie con todos los puntos
+    series = [{
+        'name': 'Tareas de Fabricación',
+        'data': highcharts_data
+    }]
+
+    # Prepara los datos para inyectar en la plantilla HTML, incluyendo los plotBands y ANOTACIONES
+    chart_json_data = {
+        'series': series,
+        'categories': worker_categories_order,
+        'title': f"Plan de Fabricación Detallado para {units} unidades",
+        'plotBands': non_work_plot_bands,
+        'annotations': annotations # <-- PASA LAS ANOTACIONES AQUÍ
+    }
+
+    template_path = resource_path("gantt_template.html")
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            html_template = f.read()
+    except FileNotFoundError:
+        logging.error(f"Error: No se encontró el archivo de plantilla Gantt en {template_path}")
+        messagebox.showerror("Error", f"No se encontró el archivo de plantilla Gantt en {template_path}.")
+        return None
+
+    import json
+    # Inyectar los datos JSON en la plantilla
+    html_content = html_template.replace(
+        "const chartData = { series: [], categories: [], title: \"\" };",
+        f"const chartData = {json.dumps(chart_json_data)};"
     )
 
-    fig = px.timeline(
-        df,
-        x_start="Inicio",
-        x_end="Fin",
-        y="Trabajador Asignado",
-        color="Departamento",
-        # Pasamos los datos adicionales para el tooltip [cite: 35]
-        custom_data=[
-            'Tarea',
-            'Departamento',
-            'Trabajador Asignado',
-            'Tipo Trabajador',
-            'Fin',
-            'Duracion (min)',
-            'Motivo Inicio'
-        ],
-        title=f"Plan de Fabricación Detallado para {units} unidades",
-    )
-
-    fig.update_traces(hovertemplate=hovertemplate)  # Aplicamos la plantilla
-    fig.update_yaxes(autorange="reversed", title="Recursos Asignados")
-
-    return fig
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    filename="app.log",
-    filemode="a",
-)
-# Ejemplo de uso
-logging.info("El programa ha iniciado.")
-from database_manager import DatabaseManager
-
-# --- Configuración de la Apariencia ---
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
-
+    return html_content
 
 # =================================================================================
 # CLASE PARA LA PANTALLA DE INICIO (Conectada a la API)
@@ -635,6 +666,26 @@ class EditFrame(ctk.CTkFrame):
         self.results_frame.grid(row=0, column=0, padx=0, pady=0, sticky="nsew")
         self.edit_area_frame = ctk.CTkFrame(self.content_frame)
 
+        # --- NUEVO: Inicializar los atributos del formulario a None ---
+        # Atributos para productos
+        self.p_codigo_entry = None
+        self.p_desc_entry = None
+        self.p_departamento_menu = None
+        self.p_donde_textbox = None
+        self.p_sub_frame = None
+        self.p_tiene_sub_var = None
+        self.p_sub_switch = None
+        self.p_tiempo_optimo_label = None
+        self.p_tiempo_optimo_entry = None
+        self.p_trabajador_menu = None
+        self.p_add_sub_button = None
+        self.p_sub_info_label = None
+
+        # Atributos para fabricaciones
+        self.f_codigo_entry = None
+        self.f_desc_entry = None
+        self.f_content_textbox = None
+
     def clear_search(self, _value=None):
         self.search_entry.delete(0, "end")
         for widget in self.results_frame.winfo_children():
@@ -672,10 +723,6 @@ class EditFrame(ctk.CTkFrame):
         self.subfabricaciones_data = [{"descripcion": s[2], "tiempo": s[3], "tipo_trabajador": s[4]} for s in sub_data_raw]
         form = self.edit_area_frame; form.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(form, text="Editando Producto", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=2, pady=10)
-        ctk.CTkLabel(form, text="Código:").grid(row=1, column=0, padx=10, pady=5, sticky="w"); self.p_codigo_entry = ctk.CTkEntry(form)
-        self.p_codigo_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew"); self.p_codigo_entry.insert(0, data["codigo"])
-        ctk.CTkLabel(form, text="Descripción:").grid(row=2, column=0, padx=10, pady=5, sticky="w"); self.p_desc_entry = ctk.CTkEntry(form)
-        self.p_desc_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew"); self.p_desc_entry.insert(0, data["descripcion"])
         ctk.CTkLabel(form, text="Departamento:").grid(row=3, column=0, padx=10, pady=5, sticky="w"); self.p_departamento_menu = ctk.CTkOptionMenu(form, values=["Mecánica", "Electrónica", "Montaje"])
         self.p_departamento_menu.set(data["departamento"]); self.p_departamento_menu.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
         ctk.CTkLabel(form, text="Dónde se ubica:").grid(row=5, column=0, padx=10, pady=5, sticky="nw"); self.p_donde_textbox = ctk.CTkTextbox(form, height=80)
@@ -739,8 +786,8 @@ class EditFrame(ctk.CTkFrame):
         self.f_codigo_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew"); self.f_codigo_entry.insert(0, data["codigo"])
         ctk.CTkLabel(form, text="Descripción:").grid(row=2, column=0, padx=10, pady=5, sticky="w"); self.f_desc_entry = ctk.CTkEntry(form)
         self.f_desc_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew"); self.f_desc_entry.insert(0, data["descripcion"])
-        ctk.CTkLabel(form, text="Contenido:").grid(row=3, column=0, padx=10, pady=5, sticky="nw"); self.f_content_textbox = ctk.CTkTextbox(form, height=200)
-        self.f_content_textbox.grid(row=3, column=1, padx=10, pady=5, sticky="ew"); self.update_fab_content_textbox()
+        ctk.CTkLabel(form, text="Contenido:").grid(row=3, column=0, padx=10, pady=5, sticky="nw")
+        self.f_content_textbox = ctk.CTkTextbox(form)  # Se asume que height=200 es el valor por defecto.
         btn_frame = ctk.CTkFrame(form, fg_color="transparent"); btn_frame.grid(row=10, column=0, columnspan=2, pady=10, sticky="ew")
         ctk.CTkButton(btn_frame, text="Guardar Cambios", command=lambda: self.save_fabricacion_changes(codigo)).pack(side="right", padx=10)
         ctk.CTkButton(btn_frame, text="Eliminar", fg_color="#E74C3C", hover_color="#C0392B", command=lambda: self.delete_fabricacion(codigo)).pack(side="right", padx=10)
@@ -1051,7 +1098,8 @@ class CalculateTimesFrame(ctk.CTkFrame):
 
         logging.info("Botón 'Generar Plan Completo' pulsado.")
         units, calc_data = self._validate_and_load_data()
-        if not units: return
+        if not units:
+            return
 
         required_departments = {task['departamento'] for task in calc_data}
         if not all(dept in self.department_plans for dept in required_departments):
@@ -1064,31 +1112,48 @@ class CalculateTimesFrame(ctk.CTkFrame):
             try:
                 for worker_type, entry in self.transfer_entries.items():
                     count = int(entry.get() or 0)
-                    if count < 0: raise ValueError
-                    if count > 0: transfer_requests[worker_type] = count
+                    if count < 0:
+                        raise ValueError
+                    if count > 0:
+                        transfer_requests[worker_type] = count
             except (ValueError, TypeError):
                 messagebox.showerror("Error de Configuración",
                                      "La cantidad de trabajadores a transferir debe ser un número entero positivo (o 0).")
                 return
+
+        # --- INICIO DE LA LÓGICA REUBICADA Y MEJORADA ---
+        # Inicialización de ResourceManager y aplicación de transferencias
+        # Esto debe hacerse ANTES de la simulación del Scheduler.
+        resource_manager = ResourceManager(self.department_plans)
+        if transfer_requests:
+            for worker_type, count in transfer_requests.items():
+                transferred = resource_manager.transfer_workers('Mecánica', 'Montaje', worker_type, count)
+                if transferred > 0:
+                    logging.info(f"Se transfirieron {transferred} trabajadores T{worker_type} de Mecánica a Montaje")
+
+        # --- FIN DE LA LÓGICA REUBICADA Y MEJORADA ---
 
         all_tasks_for_scheduler = []
         task_id_counter, last_task_in_dept_phase = 0, {}
         department_order = ["Electrónica", "Mecánica", "Montaje"]
 
         for dept_name in department_order:
-            if dept_name not in self.department_plans: continue
+            if dept_name not in self.department_plans:
+                continue
             tasks_in_this_dept = self.department_plans[dept_name].get("task_order", [])
             last_task_id_in_sequence = None
             for task_data in tasks_in_this_dept:
                 dependencies = []
                 if dept_name == 'Montaje':
-                    if 'Mecánica' in last_task_in_dept_phase: dependencies.append(last_task_in_dept_phase['Mecánica'])
-                    if 'Electrónica' in last_task_in_dept_phase: dependencies.append(
-                        last_task_in_dept_phase['Electrónica'])
+                    if 'Mecánica' in last_task_in_dept_phase:
+                        dependencies.append(last_task_in_dept_phase['Mecánica'])
+                    if 'Electrónica' in last_task_in_dept_phase:
+                        dependencies.append(last_task_in_dept_phase['Electrónica'])
                 elif dept_name == 'Mecánica':
-                    if 'Electrónica' in last_task_in_dept_phase: dependencies.append(
-                        last_task_in_dept_phase['Electrónica'])
-                if last_task_id_in_sequence: dependencies.append(last_task_id_in_sequence)
+                    if 'Electrónica' in last_task_in_dept_phase:
+                        dependencies.append(last_task_in_dept_phase['Electrónica'])
+                if last_task_id_in_sequence:
+                    dependencies.append(last_task_id_in_sequence)
 
                 if task_data["tiene_subfabricaciones"] and task_data["sub_partes"]:
                     first_sub = True
@@ -1099,8 +1164,8 @@ class CalculateTimesFrame(ctk.CTkFrame):
                                         sub_task_data["tiempo"] * 1.20 * units, dept_name,
                                         sub_task_data["tipo_trabajador"], current_deps)
                         all_tasks_for_scheduler.append(new_task)
-                        first_sub = False;
-                        task_id_counter += 1;
+                        first_sub = False
+                        task_id_counter += 1
                         last_task_id_in_sequence = new_task.id
                 else:
                     task_id = f"T-{task_id_counter}"
@@ -1108,62 +1173,117 @@ class CalculateTimesFrame(ctk.CTkFrame):
                                     task_data["tiempo_optimo"] * 1.20 * units, dept_name, task_data["tipo_trabajador"],
                                     list(dependencies))
                     all_tasks_for_scheduler.append(new_task)
-                    last_task_id_in_sequence = new_task.id;
+                    last_task_id_in_sequence = new_task.id
                     task_id_counter += 1
-            if last_task_id_in_sequence: last_task_in_dept_phase[dept_name] = last_task_id_in_sequence
+            if last_task_id_in_sequence:
+                last_task_in_dept_phase[dept_name] = last_task_id_in_sequence
 
+        global_start_date = None
         try:
-            global_start_date = min(
-                plan['start_date'] for plan in self.department_plans.values() if 'start_date' in plan)
+            if self.department_plans:
+                valid_start_dates = [plan['start_date'] for plan in self.department_plans.values() if
+                                     'start_date' in plan]
+                if valid_start_dates:
+                    global_start_date = min(valid_start_dates)
+                else:
+                    messagebox.showerror("Error",
+                                         "No se han definido fechas de inicio válidas para ninguna fase planificada.")
+                    return
+            else:
+                messagebox.showerror("Error",
+                                     "No se ha planificado ningún departamento. Establezca fechas de inicio y trabajadores.")
+                return
         except ValueError:
-            messagebox.showerror("Error", "No se ha definido una fecha de inicio para las fases planificadas.");
+            messagebox.showerror("Error", "No se ha definido una fecha de inicio para las fases planificadas.")
             return
 
-        resource_manager = ResourceManager(self.department_plans)
-        if transfer_requests:
-            for worker_type, count in transfer_requests.items():
-                resource_manager.transfer_workers('Mecánica', 'Montaje', worker_type, count)
+        if global_start_date is None:
+            messagebox.showerror("Error", "No se pudo determinar una fecha de inicio global para la simulación.")
+            return
 
-        # --- LÍNEA CORREGIDA AQUÍ ---
+
+        logging.info("Scheduler inicializado.")
         scheduler = Scheduler(all_tasks_for_scheduler, resource_manager, global_start_date, self.WORKDAY_MINUTES)
-
         self.final_planned_tasks = scheduler.run_simulation()
 
         if not self.final_planned_tasks:
-            messagebox.showerror("Error de Simulación",
-                                 "La simulación no produjo ningún resultado. Revise la configuración.");
+            logging.error("No se pudo encontrar la siguiente tarea a planificar.")
+            messagebox.showerror("Error de Simulación"
+                                 "La simulación no produjo ningún resultado. Revise la configuración.")
             return
 
+        # --- NUEVO: Generar Anotaciones de Highcharts para eventos como la transferencia ---
+        highcharts_annotations = []
+        if self.transfer_enabled_var.get() == 1 and transfer_requests:
+            last_mechanics_task_end_time = datetime.min
+            for task_data in self.final_planned_tasks:
+                if task_data['Departamento'] == 'Mecánica' and task_data['Fin'] > last_mechanics_task_end_time:
+                    last_mechanics_task_end_time = task_data['Fin']
+
+            if last_mechanics_task_end_time > datetime.min:
+                transfer_text = "Transferencia de Trabajadores:<br>"
+                for worker_type, count in transfer_requests.items():
+                    transfer_text += f"{count} T{worker_type} de Mecánica a Montaje<br>"
+
+                highcharts_annotations.append({
+                    'labels': [{
+                        'point': {
+                            'x': last_mechanics_task_end_time.timestamp() * 1000,
+                            'y': '0',  # Posición Y. Ajusta si necesitas que aparezca en un trabajador específico.
+                            'xAxis': 0,
+                            'yAxis': 0
+                        },
+                        'text': transfer_text,
+                        'backgroundColor': 'rgba(255, 255, 153, 0.8)',  # Color tipo post-it
+                        'borderColor': '#CCAA00',
+                        'borderRadius': 5,
+                        'borderWidth': 1,
+                        'padding': 10,
+                        'style': {
+                            'fontSize': '11px',
+                            'color': '#333333'
+                        }
+                    }],
+                    'labelOptions': {
+                        'allowOverlap': True
+                    }
+                })
+        # --- FIN GENERACIÓN DE ANOTACIONES ---
+
         summary_lines = [f"RESUMEN DE PLANIFICACIÓN AVANZADA PARA {units} UNIDADES", "=" * 60]
-        project_start_time = min(t["Inicio"] for t in self.final_planned_tasks);
+        project_start_time = min(t["Inicio"] for t in self.final_planned_tasks)
         project_end_time = max(t["Fin"] for t in self.final_planned_tasks)
         total_workdays = count_workdays(project_start_time, project_end_time)
         summary_lines.insert(2, f"\nDuración Total Estimada: {total_workdays:.2f} días laborables")
         summary_lines.insert(2, f"Fecha de Fin del Proyecto:   {project_end_time.strftime('%d-%m-%Y %H:%M')}")
         summary_lines.insert(2, f"Fecha de Inicio del Proyecto: {project_start_time.strftime('%d-%m-%Y %H:%M')}")
 
-        self.results_textbox.configure(state="normal");
+        self.results_textbox.configure(state="normal")
         self.results_textbox.delete("1.0", "end")
-        self.results_textbox.insert("1.0", "\n".join(summary_lines));
+        self.results_textbox.insert("1.0", "\n".join(summary_lines))
         self.results_textbox.configure(state="disabled")
         self.export_button.configure(state="normal")
 
-        gantt_fig = create_gantt_chart(self.final_planned_tasks, units)
+        # Se pasa el nuevo parámetro 'highcharts_annotations'
+        gantt_html_content = create_gantt_chart(self.final_planned_tasks, units, highcharts_annotations)
 
-        if gantt_fig:
-            filepath = filedialog.asksaveasfilename(title="Guardar Diagrama de Gantt como...", defaultextension=".html",
+        if gantt_html_content:
+            filepath = filedialog.asksaveasfilename(title="Guardar Diagrama de Gantt como...",
+                                                    defaultextension=".html",
                                                     filetypes=[("HTML files", "*.html")])
             if filepath:
-                gantt_fig.write_html(filepath)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(gantt_html_content)
                 messagebox.showinfo("Plan Generado",
                                     f"El plan se ha calculado y el diagrama se ha guardado en:\n{filepath}")
 
-        del gantt_fig, all_tasks_for_scheduler, resource_manager, scheduler
+        # Limpieza de memoria
+        del gantt_html_content, all_tasks_for_scheduler, resource_manager, scheduler
         gc.collect()
 
     def export_to_excel(self):
         if self.final_planned_tasks is None:
-            messagebox.showerror("Error", "Primero debe generar un plan completo.");
+            messagebox.showerror("Error", "Primero debe generar un plan completo.")
             return
         filepath = filedialog.asksaveasfilename(title="Exportar Plan a Excel", defaultextension=".xlsx",
                                                 filetypes=[("Excel files", "*.xlsx")])
@@ -1327,9 +1447,10 @@ class SettingsFrame(ctk.CTkFrame):
 # =================================================================================
 # CLASE PRINCIPAL DE LA APLICACIÓN
 # =================================================================================
+# En main.py, dentro de la clase App
 class App(ctk.CTk):
     def __init__(self):
-        super().__init__()
+        super().__init__() # Esta debe ser la primera llamada en __init__
         logging.info("Iniciando App.__init__...")
 
         self.title("Calculadora de Tiempos de Montaje")
@@ -1347,39 +1468,44 @@ class App(ctk.CTk):
             self.db_path = resource_path(db_filename)
             self.db_manager = DatabaseManager(db_path=self.db_path)
             logging.info("Configuración y base de datos cargadas con éxito.")
-
-        except Exception as e:
+        except (configparser.Error, sqlite3.Error, OSError) as e: # Cláusula de excepción más específica
             logging.critical(f"ERROR CRÍTICO CAPTURADO EN __init__: {e}", exc_info=True)
             messagebox.showerror("Error Crítico de Configuración",
-                                 f"No se pudo inicializar la configuración o la base de datos:\n{e}\n\nConsulte app.log para más detalles.")
-            self.destroy()
-            return
+                                 f"No se pudo inicializar la configuración o la base de datos debido a un error de configuración, base de datos o sistema de archivos:\n{e}\n\nConsulte app.log para más detalles.")
+            self.destroy() # Destruir la ventana si hay un error crítico
+            return # Salir del __init__ si la app no puede iniciarse
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
+
+        # --- Frame de Navegación ---
         self.navigation_frame = ctk.CTkFrame(self, width=140, corner_radius=0)
         self.navigation_frame.grid(row=0, column=0, sticky="nsew")
-        self.navigation_frame.grid_rowconfigure(6, weight=1)
+        self.navigation_frame.grid_rowconfigure(6, weight=1) # Fila flexible para empujar botones abajo
+
         ctk.CTkLabel(self.navigation_frame, text="  Menú Principal", font=ctk.CTkFont(size=18, weight="bold")).grid(
             row=0, column=0, padx=20, pady=20)
 
-        self.buttons = {}
-        button_info = [("Inicio", "home"), ("Añadir Productos", "add_product"),
-                       ("Crear Fabricación", "create_fabrication"), ("Editar / Visualizar", "edit"),
-                       ("Calcular Tiempos", "calculate")]
-        for i, (text, name) in enumerate(button_info):
+        # --- Creación unificada de botones de navegación ---
+        self.buttons = {} # Diccionario para almacenar todos los botones de navegación
+        button_info = [
+            ("Inicio", "home", 1, 10),
+            ("Añadir Productos", "add_product", 2, 10),
+            ("Crear Fabricación", "create_fabrication", 3, 10),
+            ("Editar / Visualizar", "edit", 4, 10),
+            ("Calcular Tiempos", "calculate", 5, 10),
+            ("¿Cómo funciona?", "help", 7, 10), # Fila 7 (después de la fila flexible)
+            ("Configuración", "settings", 8, 20) # Fila 8 con más pady
+        ]
+
+        for text, name, row_num, pady_val in button_info:
             button = ctk.CTkButton(self.navigation_frame, text=text,
                                    command=lambda n=name: self.select_frame_by_name(n))
-            button.grid(row=i + 1, column=0, padx=20, pady=10)
-            self.buttons[name] = button
+            button.grid(row=row_num, column=0, padx=20, pady=pady_val)
+            self.buttons[name] = button # Almacenar el botón en el diccionario
 
-        self.help_button = ctk.CTkButton(self.navigation_frame, text="¿Cómo funciona?",
-                                         command=lambda: self.select_frame_by_name("help"))
-        self.help_button.grid(row=7, column=0, padx=20, pady=10)
-        self.settings_button = ctk.CTkButton(self.navigation_frame, text="Configuración",
-                                             command=lambda: self.select_frame_by_name("settings"))
-        self.settings_button.grid(row=8, column=0, padx=20, pady=20)
-
+        # --- Inicialización de Frames de Contenido ---
+        # Asegúrate de que estas clases estén definidas antes de App
         self.frames = {
             "home": HomeFrame(self),
             "add_product": AddProductFrame(self, self.db_manager),
@@ -1389,39 +1515,49 @@ class App(ctk.CTk):
             "help": HelpFrame(self),
             "settings": SettingsFrame(self, self)
         }
+
+        # Seleccionar el frame inicial (Home)
+        # Esto debe hacerse DESPUÉS de que self.buttons y self.frames estén completamente inicializados
         self.select_frame_by_name("home")
         logging.info("App.__init__ completado con éxito.")
 
     def select_frame_by_name(self, name):
-        for btn in self.buttons.values():
-            btn.configure(fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
-        self.help_button.configure(fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
-        self.settings_button.configure(fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
+        """Selecciona el frame de contenido a mostrar y actualiza el color del botón de navegación."""
+        # Restablecer el color de todos los botones de navegación
+        for btn_name, btn_widget in self.buttons.items():
+            btn_widget.configure(fg_color=ctk.ThemeManager.theme["CTkButton"]["fg_color"])
 
+        # Ocultar todos los frames de contenido
         for frame in self.frames.values():
             frame.grid_forget()
 
+        # Mostrar el frame seleccionado
         if name in self.frames:
             self.frames[name].grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
 
-        active_button = self.buttons.get(name) or (
-            self.help_button if name == "help" else self.settings_button if name == "settings" else None)
+        # Cambiar el color del botón activo
+        active_button = self.buttons.get(name)
         if active_button:
             active_button.configure(fg_color="#1F618D")
 
     def on_closing(self):
+        """Maneja el cierre de la aplicación, cerrando la conexión a la base de datos."""
         if self.db_manager and self.db_manager.conn:
             self.db_manager.close()
         self.destroy()
 
     def restart_app(self):
+        """Reinicia la aplicación."""
         self.on_closing()
+        # os.execl reemplaza el proceso actual, por lo que la app se reinicia desde cero
         os.execl(sys.executable, sys.executable, *sys.argv)
 
+# Bloque principal de ejecución de la aplicación
 if __name__ == "__main__":
     logging.info("Bloque __main__ alcanzado. Creando instancia de App.")
     app = App()
-    if app.winfo_exists(): # Solo ejecutar si la ventana no fue destruida por un error
+    # Solo ejecutar mainloop si la ventana no fue destruida durante la inicialización (por un error crítico)
+    if app.winfo_exists():
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         logging.info("Iniciando mainloop de la aplicación.")
         app.mainloop()
